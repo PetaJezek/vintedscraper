@@ -45,7 +45,7 @@ SCRAPE_URLS = [
     },
 ]
 
-MAX_PAGES_PER_URL = 10  # How many pages to check per URL
+MAX_PAGES_PER_URL = 6  # How many pages to check per URL
 DEBUG_LIMIT = None  # How many items to process (set to None for unlimited)
 RATE_LIMIT_PAUSE = 40  # Seconds to wait when rate limited
 

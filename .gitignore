@@ -1,8 +1,11 @@
 /webapp/fashion-swiper-frontend
+
 /webapp/vinted_clothes.db
+
+
 /negative_images
 my_taste_profile.npy
 negative_profile.npy
 
-seen_items.json
+seen_item_ids.json
 vinted_items.json
