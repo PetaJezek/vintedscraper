@@ -9,7 +9,7 @@ from playwright.async_api import async_playwright, TimeoutError
 from pathlib import Path
 
 # --- CONFIGURATION ---
-CONCURRENT_PAGES = 15
+CONCURRENT_PAGES = 2
 OUTPUT_FILE = "vinted_items.json"
 SEEN_IDS_FILE = "seen_item_ids.json"
 IMAGES_FOLDER = "webapp/vinted_images"
@@ -27,26 +27,26 @@ SCRAPE_URLS = [
         "url": "https://www.vinted.cz/catalog?search_id=27178387662&catalog[]=5&size_ids[]=1647&size_ids[]=1648&page={page}&time=1759588326",
         "tag": "Everything but pants"
     },
-    {
-        "url": "https://www.vinted.cz/catalog?search_id=27178387662&catalog[]=5&size_ids[]=210&size_ids[]=211&page={page}&time=1759588199",
-        "tag": "Pants"
-    },
-    {
-        "url": "https://www.vinted.cz/catalog?search_id=27295437492&catalog[]=76&currency=CZK&page={page}&time=1759862512&price_to=550&size_ids[]=210&size_ids[]=211&size_ids[]=209",
-        "tag": "Tshirts under 550 CZK"
-    },
-    {
-        "url": "https://www.vinted.cz/catalog?search_id=27295689623&catalog[]=79&size_ids[]=210&size_ids[]=209&size_ids[]=211&page={page}&time=1759862632&price_to=1000&currency=CZK",
-        "tag": "Jumpers under 1000 CZK"
-    },
+    # {
+    #     "url": "https://www.vinted.cz/catalog?search_id=27178387662&catalog[]=5&size_ids[]=210&size_ids[]=211&page={page}&time=1759588199",
+    #     "tag": "Pants"
+    # },
+    # {
+    #     "url": "https://www.vinted.cz/catalog?search_id=27295437492&catalog[]=76&currency=CZK&page={page}&time=1759862512&price_to=550&size_ids[]=210&size_ids[]=211&size_ids[]=209",
+    #     "tag": "Tshirts under 550 CZK"
+    # },
+    # {
+    #     "url": "https://www.vinted.cz/catalog?search_id=27295689623&catalog[]=79&size_ids[]=210&size_ids[]=209&size_ids[]=211&page={page}&time=1759862632&price_to=1000&currency=CZK",
+    #     "tag": "Jumpers under 1000 CZK"
+    # },
     {
         "url": "https://www.vinted.cz/",
         "tag": "Main Page"
     },
 ]
 
-MAX_PAGES_PER_URL = 6  # How many pages to check per URL
-DEBUG_LIMIT = None  # How many items to process (set to None for unlimited)
+MAX_PAGES_PER_URL = 10  # How many pages to check per URL
+DEBUG_LIMIT = 30  # How many items to process (set to None for unlimited)
 RATE_LIMIT_PAUSE = 40  # Seconds to wait when rate limited
 
 
