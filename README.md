@@ -350,5 +350,3 @@ Ensure you run commands under `.venv/bin/python` or activate the virtual environ
 - This repository is intended as a research / prototyping pipeline.
 - The code assumes local image files and JSON metadata are present.
 - Scoring quality improves when you provide real positive and negative examples and/or human ratings.
-
-If you want, I can also add a quick `examples/` section or a shell script for the full pipeline. 
