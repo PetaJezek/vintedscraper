@@ -12,16 +12,8 @@ from playwright.async_api import async_playwright, TimeoutError
 from pathlib import Path
 from _db import save_items_to_db, init_db
 
-# --- OPTIMIZED CONFIGURATION ---
-CONCURRENT_PAGES = 12   # More conservative to avoid rate limits
-MAX_PAGES_PER_URL = 5  # Fewer pages per run to appear less aggressive
-RATE_LIMIT_PAUSE = 30  # Longer initial pause
-DEBUG_LIMIT = None    # How many items to process (set to None for unlimited)
-
-# Delays to mimic human behavior
-DELAY_BETWEEN_ITEMS = (2, 5)  # (min, max) seconds between item checks
-DELAY_BETWEEN_PAGES = (5, 10) # (min, max) seconds between catalog page loads
-
+# --- CONFIGURATION ---
+CONCURRENT_PAGES = 2
 OUTPUT_FILE = "vinted_items.json"
 SEEN_IDS_FILE = "seen_item_ids.json"
 IMAGES_FOLDER = "webapp/vinted_images"
@@ -49,242 +41,30 @@ SCRAPE_URLS = [
         "url": "https://www.vinted.cz/catalog?search_id=27178387662&catalog[]=5&size_ids[]=1647&size_ids[]=1648&page={page}",
         "tag": "Everything but pants"
     },
+    # {
+    #     "url": "https://www.vinted.cz/catalog?search_id=27178387662&catalog[]=5&size_ids[]=210&size_ids[]=211&page={page}&time=1759588199",
+    #     "tag": "Pants"
+    # },
+    # {
+    #     "url": "https://www.vinted.cz/catalog?search_id=27295437492&catalog[]=76&currency=CZK&page={page}&time=1759862512&price_to=550&size_ids[]=210&size_ids[]=211&size_ids[]=209",
+    #     "tag": "Tshirts under 550 CZK"
+    # },
+    # {
+    #     "url": "https://www.vinted.cz/catalog?search_id=27295689623&catalog[]=79&size_ids[]=210&size_ids[]=209&size_ids[]=211&page={page}&time=1759862632&price_to=1000&currency=CZK",
+    #     "tag": "Jumpers under 1000 CZK"
+    # },
     {
-        "url": "https://www.vinted.cz/catalog?search_id=27178387662&catalog[]=5&size_ids[]=210&size_ids[]=211&size_ids[]=1642&size_ids[]=1662&size_ids[]=1643&size_ids[]=1644&size_ids[]=1645&size_ids[]=1646&page={page}",
-        "tag": "Pants"
+        "url": "https://www.vinted.cz/",
+        "tag": "Main Page"
     },
-    {
-        "url": "https://www.vinted.cz/catalog?search_id=27295437492&catalog[]=76&currency=CZK&page={page}&time=1759862512&price_to=550&size_ids[]=210&size_ids[]=211&size_ids[]=209",
-        "tag": "Tshirts under 550 CZK"
-    },
-    {
-        "url": "https://www.vinted.cz/catalog?search_id=27295689623&catalog[]=79&size_ids[]=210&size_ids[]=209&size_ids[]=211&page={page}&time=1759862632&price_to=1000&currency=CZK",
-        "tag": "Jumpers under 1000 CZK"
-    }
 ]
 
-# --- DIAGNOSTICS & METRICS ---
-
-class ScraperMetrics:
-    def __init__(self):
-        self.start_time = time.time()
-        self.metrics = {
-            'page_loads': [],
-            'item_checks': [],
-            'image_downloads': [],
-            'rate_limits': 0,
-            'polish_items': 0,
-            'successful_items': 0,
-            'failed_items': 0,
-            'countries_used': defaultdict(int),
-            'total_wait_time': 0,
-        }
-        self.current_country = None
-
-    def log_page_load(self, duration, items_found):
-        self.metrics['page_loads'].append({
-            'duration': duration,
-            'items': items_found,
-            'timestamp': time.time()
-        })
-
-    def log_item_check(self, duration, success, reason=None):
-        self.metrics['item_checks'].append({
-            'duration': duration,
-            'success': success,
-            'reason': reason,
-            'timestamp': time.time()
-        })
-
-        if success:
-            self.metrics['successful_items'] += 1
-        else:
-            self.metrics['failed_items'] += 1
-            if reason == 'polish':
-                self.metrics['polish_items'] += 1
-            elif reason == 'rate_limit':
-                self.metrics['rate_limits'] += 1
-
-    def log_image_download(self, duration, success):
-        self.metrics['image_downloads'].append({
-            'duration': duration,
-            'success': success,
-            'timestamp': time.time()
-        })
-
-    def log_rate_limit(self, wait_time):
-        self.metrics['rate_limits'] += 1
-        self.metrics['total_wait_time'] += wait_time
-
-    def log_country_change(self, country):
-        self.current_country = country
-        self.metrics['countries_used'][country] += 1
-
-    def get_summary(self):
-        elapsed = time.time() - self.start_time
-
-        avg_page_load = sum(p['duration'] for p in self.metrics['page_loads']) / len(self.metrics['page_loads']) if self.metrics['page_loads'] else 0
-        avg_item_check = sum(i['duration'] for i in self.metrics['item_checks']) / len(self.metrics['item_checks']) if self.metrics['item_checks'] else 0
-        avg_image_dl = sum(i['duration'] for i in self.metrics['image_downloads']) / len(self.metrics['image_downloads']) if self.metrics['image_downloads'] else 0
-
-        items_per_minute = (self.metrics['successful_items'] / elapsed) * 60 if elapsed > 0 else 0
-        rate_limit_percentage = (self.metrics['rate_limits'] / len(self.metrics['item_checks'])) * 100 if self.metrics['item_checks'] else 0
-
-        return {
-            'total_time': elapsed,
-            'successful_items': self.metrics['successful_items'],
-            'failed_items': self.metrics['failed_items'],
-            'polish_items': self.metrics['polish_items'],
-            'rate_limits': self.metrics['rate_limits'],
-            'items_per_minute': items_per_minute,
-            'rate_limit_percentage': rate_limit_percentage,
-            'avg_page_load_time': avg_page_load,
-            'avg_item_check_time': avg_item_check,
-            'avg_image_download_time': avg_image_dl,
-            'total_wait_time': self.metrics['total_wait_time'],
-            'countries_used': dict(self.metrics['countries_used']),
-            'productive_time': elapsed - self.metrics['total_wait_time'],
-        }
-
-    def print_summary(self):
-        summary = self.get_summary()
-        print("\n" + "="*80)
-        print("📊 SCRAPER PERFORMANCE REPORT")
-        print("="*80)
-        print(f"\n⏱️  TIME:")
-        print(f"   Total elapsed:     {summary['total_time']/60:.1f} minutes")
-        print(f"   Productive time:   {summary['productive_time']/60:.1f} minutes")
-        print(f"   Wasted (waiting):  {summary['total_wait_time']/60:.1f} minutes ({summary['total_wait_time']/summary['total_time']*100:.1f}%)")
-        print(f"\n✅ SUCCESS:")
-        print(f"   Items scraped:     {summary['successful_items']}")
-        print(f"   Rate:              {summary['items_per_minute']:.1f} items/minute")
-        print(f"\n❌ FAILURES:")
-        print(f"   Polish items:      {summary['polish_items']}")
-        print(f"   Rate limits:       {summary['rate_limits']} ({summary['rate_limit_percentage']:.1f}%)")
-        print(f"   Other failures:    {summary['failed_items'] - summary['polish_items'] - summary['rate_limits']}")
-        print(f"\n⚡ PERFORMANCE:")
-        print(f"   Avg page load:     {summary['avg_page_load_time']:.2f}s")
-        print(f"   Avg item check:    {summary['avg_item_check_time']:.2f}s")
-        print(f"   Avg image dl:      {summary['avg_image_download_time']:.2f}s")
-        print(f"\n🌍 COUNTRIES USED:")
-        for country, count in sorted(summary['countries_used'].items(), key=lambda x: x[1], reverse=True):
-            print(f"   {country.upper()}: {count} times")
-        print("="*80 + "\n")
-
-# Global metrics instance
-metrics = ScraperMetrics()
-
-class RealTimeMonitor:
-    def __init__(self, metrics_instance, interval=30):
-        self.metrics = metrics_instance
-        self.interval = interval
-        self.running = False
-        self.thread = None
-
-    def start(self):
-        self.running = True
-        self.thread = threading.Thread(target=self._monitor_loop, daemon=True)
-        self.thread.start()
-
-    def stop(self):
-        self.running = False
-        if self.thread:
-            self.thread.join()
-
-    def _monitor_loop(self):
-        while self.running:
-            time.sleep(self.interval)
-            if self.running:
-                self._print_status()
-
-    def _print_status(self):
-        summary = self.metrics.get_summary()
-        print(f"\n⏱️  [{datetime.now().strftime('%H:%M:%S')}] Status:")
-        print(f"   Items: {summary['successful_items']} | "
-              f"Rate: {summary['items_per_minute']:.1f}/min | "
-              f"Rate limits: {summary['rate_limits']} | "
-              f"Time: {summary['total_time']/60:.1f}m")
-
-def save_metrics_to_file():
-    summary = metrics.get_summary()
-    with open('scraper_metrics.json', 'w') as f:
-        json.dump(summary, f, indent=2)
-    print(f"💾 Metrics saved to scraper_metrics.json")
+MAX_PAGES_PER_URL = 10  # How many pages to check per URL
+DEBUG_LIMIT = 30  # How many items to process (set to None for unlimited)
+RATE_LIMIT_PAUSE = 40  # Seconds to wait when rate limited
 
 
-# --- RATE LIMIT & FAILURE HANDLING ---
-
-class RateLimitHandler:
-    """Implements exponential backoff for rate limiting."""
-    def __init__(self):
-        self.consecutive_rate_limits = 0
-        self.backoff_time = RATE_LIMIT_PAUSE
-
-    async def handle_rate_limit(self):
-        self.consecutive_rate_limits += 1
-        wait_time = min(self.backoff_time * (2 ** (self.consecutive_rate_limits - 1)), 300) # Max 5 mins
-        print(f"🔴 RATE LIMIT #{self.consecutive_rate_limits}! Waiting {wait_time:.0f}s and changing country.")
-        metrics.log_rate_limit(wait_time)
-        change_country_smart()
-        await asyncio.sleep(wait_time)
-
-    def reset(self):
-        if self.consecutive_rate_limits > 0:
-            print(f"✅ Rate limit issue resolved after {self.consecutive_rate_limits} attempt(s).")
-        self.consecutive_rate_limits = 0
-
-class CircuitBreaker:
-    """Prevents scraper from running if it's failing repeatedly."""
-    def __init__(self, failure_threshold=10, recovery_time=60):  # Changed from 5 to 10 failures
-        self.failure_count = 0
-        self.failure_threshold = failure_threshold
-        self.recovery_time = recovery_time
-        self.last_failure_time = None
-        self.is_open = False
-        self.last_success_time = time.time()
-
-    def record_failure(self):
-        self.failure_count += 1
-        self.last_failure_time = time.time()
-        
-        # Only open circuit if failures are happening rapidly
-        time_since_success = time.time() - self.last_success_time
-        
-        if self.failure_count >= self.failure_threshold and time_since_success < 120:  # 10 failures in 2 minutes
-            if not self.is_open:
-                print(f"🔴 CIRCUIT BREAKER OPENED: {self.failure_count} rapid failures.")
-                print(f"   Pausing for {self.recovery_time}s...")
-                self.is_open = True
-
-    def record_success(self):
-        if self.is_open:
-            print("🟢 CIRCUIT BREAKER CLOSED. Resuming.")
-        self.failure_count = 0
-        self.is_open = False
-        self.last_success_time = time.time()
-
-    async def check(self):
-        """Check if circuit breaker allows operation."""
-        if self.is_open:
-            elapsed = time.time() - self.last_failure_time
-            if elapsed < self.recovery_time:
-                # Instead of raising exception, just wait
-                remaining = self.recovery_time - elapsed
-                print(f"   ⏸️  Circuit breaker cooling down... {remaining:.0f}s remaining")
-                await asyncio.sleep(min(remaining, 10))  # Wait max 10s at a time
-                return False  # Signal to skip this item
-            else:
-                print("🟡 CIRCUIT BREAKER attempting recovery...")
-                self.failure_count = self.failure_threshold // 2  # Reset partially
-                self.is_open = False
-        return True  # OK to proceed
-
-# Global handlers
-rate_limit_handler = RateLimitHandler()
-circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_time=300)
-
-# --- CORE SCRAPER LOGIC ---
-
+# Create images folder
 Path(IMAGES_FOLDER).mkdir(exist_ok=True)
 
 def extract_item_id(url):

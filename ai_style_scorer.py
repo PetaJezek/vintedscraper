@@ -1,43 +1,26 @@
+import argparse
+import joblib
 import torch
 from sentence_transformers import SentenceTransformer
-from transformers import CLIPProcessor, CLIPModel, CLIPTokenizer
+from transformers import CLIPProcessor, CLIPModel
 from PIL import Image
 import json
 import numpy as np
 from pathlib import Path
 
+from style_utils import (BASE_DIR, MODEL_CONFIGS, encode_image,
+                         extract_category_from_text, load_image_model, resolve_path)
+
 # --- MODEL SELECTION ---
 # Choose one of these models:
 MODEL_CHOICE = 'fashionclip2'  # Options: 'fashionclip', 'fashionclip2', 'clip-large', 'clip-base'
-
-MODEL_CONFIGS = {
-    'fashionclip': {
-        'name': 'patrickjohncyh/fashion-clip',
-        'type': 'huggingface',
-        'description': 'Fashion-CLIP trained on fashion datasets'
-    },
-    'fashionclip2': {
-        'name': 'Marqo/marqo-fashionCLIP',
-        'type': 'huggingface', 
-        'description': 'Marqo Fashion-CLIP variant'
-    },
-    'clip-large': {
-        'name': 'clip-ViT-L-14',
-        'type': 'sentence-transformers',
-        'description': 'Larger CLIP model (better than base)'
-    },
-    'clip-base': {
-        'name': 'clip-ViT-B-32',
-        'type': 'sentence-transformers',
-        'description': 'Standard CLIP (what you were using)'
-    }
-}
 
 # --- CONFIGURATION ---
 TASTE_PROFILE_FILE = 'my_taste_profile.npy'
 NEGATIVE_PROFILE_FILE = 'negative_profile.npy'
 SCRAPED_ITEMS_FILE = 'vinted_items.json'
 OUTPUT_FILE = 'scored_items.json'
+CLASSIFIER_FILE = BASE_DIR / 'style_classifier.joblib'
 
 # --- SCORING PARAMETERS ---
 MIN_SCORE_THRESHOLD = 70.0
@@ -48,6 +31,27 @@ POSITIVE_WEIGHT = 0.7
 NEGATIVE_WEIGHT = 0.3
 NEGATIVE_PENALTY_POWER = 1.5
 
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Score scraped Vinted items against your style profile or classifier.')
+    parser.add_argument('--model-choice', default=MODEL_CHOICE,
+                        choices=['fashionclip', 'fashionclip2', 'clip-large', 'clip-base'],
+                        help='Embedding model to use for scoring.')
+    parser.add_argument('--scraped-items', default=SCRAPED_ITEMS_FILE,
+                        help='Input JSON file containing scraped items.')
+    parser.add_argument('--output', default=OUTPUT_FILE,
+                        help='Output JSON file for scored items.')
+    parser.add_argument('--classifier-file', default=str(CLASSIFIER_FILE),
+                        help='Optional trained classifier file to use instead of similarity scoring.')
+    parser.add_argument('--min-score', type=float, default=MIN_SCORE_THRESHOLD,
+                        help='Minimum score threshold to include an item.')
+    parser.add_argument('--positive-profile', default=TASTE_PROFILE_FILE,
+                        help='Positive taste profile file.')
+    parser.add_argument('--negative-profile', default=NEGATIVE_PROFILE_FILE,
+                        help='Negative taste profile file.')
+    parser.add_argument('--no-negative', action='store_true',
+                        help='Do not use negative profile scoring.')
+    return parser.parse_args()
 
 positive_prompts = [
     "loose relaxed fit menswear",
@@ -65,245 +69,254 @@ negative_prompts = [
     "mall fashion jeans and graphic tee",
 ]
 
+
 def encode_texts(prompts, model, processor, device, model_type):
     """Encode text prompts using the same model type."""
     if model_type == 'huggingface':
-        inputs = processor(text=prompts, return_tensors="pt", padding=True).to(device)
+        inputs = processor(text=prompts, return_tensors='pt', padding=True).to(device)
         with torch.no_grad():
             text_features = model.get_text_features(**inputs)
-        text_features = torch.nn.functional.normalize(text_features, p=2, dim=1)
-        return text_features
-    else:
-        # sentence-transformers
-        text_features = model.encode(prompts, convert_to_tensor=True, device=device)
-        text_features = torch.nn.functional.normalize(text_features, p=2, dim=1)
-        return text_features
+        return torch.nn.functional.normalize(text_features, p=2, dim=1)
 
-def load_fashion_model(model_choice):
-    """Load the selected fashion model."""
-    config = MODEL_CONFIGS[model_choice]
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    
-    print(f"🧠 Loading {config['description']}...")
-    print(f"   Model: {config['name']}")
-    print(f"   Device: {device}")
-    
-    if config['type'] == 'huggingface':
-        # Load HuggingFace CLIP model
-        model = CLIPModel.from_pretrained(config['name']).to(device)
-        processor = CLIPProcessor.from_pretrained(config['name'])
-        return model, processor, device, 'huggingface'
-    else:
-        # Load sentence-transformers model
-        model = SentenceTransformer(config['name'], device=device)
-        return model, None, device, 'sentence-transformers'
-
-
-def encode_image_hf(image, model, processor, device):
-    """Encode image using HuggingFace CLIP model."""
-    inputs = processor(images=image, return_tensors="pt").to(device)
-    with torch.no_grad():
-        image_features = model.get_image_features(**inputs)
-    image_features = torch.nn.functional.normalize(image_features, p=2, dim=1)
-    return image_features
-
-
-def encode_image_st(image, model, device):
-    """Encode image using sentence-transformers model."""
-    embedding = model.encode(image, convert_to_tensor=True, device=device)
-    embedding = torch.nn.functional.normalize(embedding, p=2, dim=0)
-    return embedding.unsqueeze(0)
+    text_features = model.encode(prompts, convert_to_tensor=True, device=device)
+    return torch.nn.functional.normalize(text_features, p=2, dim=1)
 
 
 def create_profile_from_images(folder, model, processor, device, model_type):
     """Create an embedding profile from a folder of images."""
     folder_path = Path(folder)
-    
     if not folder_path.exists():
         print(f"   ⚠️  Folder '{folder}' not found, skipping.")
         return None
-    
+
     valid_extensions = ['.jpg', '.jpeg', '.png', '.webp']
     image_paths = [p for p in folder_path.iterdir() if p.suffix.lower() in valid_extensions]
-    
     if not image_paths:
         print(f"   ⚠️  No images in '{folder}', skipping.")
         return None
-    
+
     print(f"   Processing {len(image_paths)} images from '{folder}'...")
     embeddings = []
-    
     for img_path in image_paths:
         try:
-            image = Image.open(img_path).convert("RGB")
-            
-            if model_type == 'huggingface':
-                embedding = encode_image_hf(image, model, processor, device)
-            else:
-                embedding = encode_image_st(image, model, device)
-            
+            image = Image.open(img_path).convert('RGB')
+            embedding = encode_image(image, model, processor, device, model_type)
             embeddings.append(embedding)
         except Exception as e:
             print(f"      ⚠️  Failed to process {img_path.name}: {e}")
             continue
-    
+
     if not embeddings:
         return None
-    
-    # Stack and normalize
+
     stacked = torch.cat(embeddings, dim=0)
     return stacked
 
 
-# --- LOAD MODEL ---
-model, processor, device, model_type = load_fashion_model(MODEL_CHOICE)
+def score_items(items, model, processor, device, model_type, taste_profile_tensor,
+                negative_profile_tensor, has_negative_profile, style_classifier,
+                min_score_threshold=MIN_SCORE_THRESHOLD):
+    scored_items = []
 
-# --- LOAD OR CREATE PROFILES ---
-print(f"\n{'='*60}")
-print("Loading taste profiles...")
-print(f"{'='*60}")
+    for item in items:
+        image_path_str = item.get('image_url')
+        if not image_path_str:
+            continue
 
-positive_text_embeds = encode_texts(positive_prompts, model, processor, device, model_type)
-negative_text_embeds = encode_texts(negative_prompts, model, processor, device, model_type)
+        image_path = resolve_path(image_path_str)
+        if not image_path.exists():
+            continue
 
-# Try to load existing profiles
-try:
-    taste_profile = np.load(TASTE_PROFILE_FILE)
-    taste_profile_tensor = torch.tensor(taste_profile, device=device)
-    taste_profile_tensor = torch.cat([taste_profile_tensor, positive_text_embeds], dim=0)
-    print(f"✅ Loaded positive profile ({len(taste_profile)} items)")
-except FileNotFoundError:
-    print(f"⚠️  No saved positive profile found.")
-    print(f"   Creating new profile from 'pinterest_images' folder...")
-    taste_profile_tensor = create_profile_from_images(
-        'pinterest_images', model, processor, device, model_type
-    )
-    if taste_profile_tensor is None:
-        print("❌ Cannot create positive profile. Exiting.")
-        exit()
-    # Save for next time
-    np.save(TASTE_PROFILE_FILE, taste_profile_tensor.cpu().numpy())
-    print(f"✅ Created and saved positive profile")
-
-# Load negative profile if enabled
-has_negative_profile = False
-negative_profile_tensor = None
-
-if USE_NEGATIVE_PROFILE:
-    try:
-        negative_profile = np.load(NEGATIVE_PROFILE_FILE)
-        if len(negative_profile) > 0:
-            negative_profile_tensor = torch.tensor(negative_profile, device=device)
-            negative_profile_tensor = torch.cat([negative_profile_tensor, negative_text_embeds], dim=0)
-            has_negative_profile = True
-            print(f"✅ Loaded negative profile ({len(negative_profile)} items)")
-    except FileNotFoundError:
-        print(f"⚠️  No saved negative profile found.")
-        print(f"   Creating new profile from 'negative_images' folder...")
-        negative_profile_tensor = create_profile_from_images(
-            'negative_images', model, processor, device, model_type
+        category = extract_category_from_text(
+            item.get('title', ''),
+            item.get('description', ''),
+            item.get('tag', ''),
+            item.get('brand', ''),
+            item.get('size', '')
         )
-        if negative_profile_tensor is not None:
-            has_negative_profile = True
-            np.save(NEGATIVE_PROFILE_FILE, negative_profile_tensor.cpu().numpy())
-            print(f"✅ Created and saved negative profile")
-        else:
-            print(f"ℹ️  No negative profile available")
+        item['category'] = category
 
-# --- LOAD ITEMS ---
-try:
-    with open(SCRAPED_ITEMS_FILE, 'r', encoding='utf-8') as f:
-        items = json.load(f)
-    print(f"✅ Loaded {len(items)} items to score")
-except FileNotFoundError:
-    print(f"❌ Error: Could not find '{SCRAPED_ITEMS_FILE}'.")
-    exit()
+        try:
+            image = Image.open(image_path).convert('RGB')
+            item_embedding = encode_image(image, model, processor, device, model_type)
 
-# --- SCORE ITEMS ---
-print(f"\n{'='*60}")
-print(f"🎯 Scoring items with {MODEL_CONFIGS[MODEL_CHOICE]['description']}")
-print(f"{'='*60}\n")
+            final_score_0_to_1 = 0.0
+            positive_score = 0.0
+            negative_score = 0.0
+            score_source = 'similarity'
 
-scored_items = []
+            if style_classifier is not None:
+                features = item_embedding.cpu().numpy()
+                try:
+                    probabilities = style_classifier.predict_proba(features)[0]
+                    if hasattr(style_classifier, 'classes_') and 1 in style_classifier.classes_:
+                        class_idx = list(style_classifier.classes_).index(1)
+                    else:
+                        class_idx = probabilities.argmax()
+                    final_score_0_to_1 = float(probabilities[class_idx])
+                except Exception:
+                    final_score_0_to_1 = float(style_classifier.predict(features)[0])
+                score_source = 'classifier'
+                item['debug_positive'] = round(final_score_0_to_1 * 100, 1)
+                item['debug_negative'] = 0.0
+            else:
+                if taste_profile_tensor is None:
+                    continue
 
-for i, item in enumerate(items):
-    image_path_str = item.get('image_url')
-    if not image_path_str or not Path(image_path_str).exists():
-        continue
-    
+                positive_similarities = torch.matmul(item_embedding, taste_profile_tensor.T)
+                best_positive_similarity = torch.max(positive_similarities).item()
+                positive_score = (best_positive_similarity + 1) / 2
+
+                if has_negative_profile and negative_profile_tensor is not None:
+                    negative_similarities = torch.matmul(item_embedding, negative_profile_tensor.T)
+                    best_negative_similarity = torch.max(negative_similarities).item()
+                    negative_match = (best_negative_similarity + 1) / 2
+                    negative_score = negative_match ** NEGATIVE_PENALTY_POWER
+
+                if has_negative_profile:
+                    positive_contribution = positive_score * POSITIVE_WEIGHT
+                    negative_contribution = negative_score * NEGATIVE_WEIGHT
+                    final_score_0_to_1 = (positive_contribution - negative_contribution + NEGATIVE_WEIGHT) / (POSITIVE_WEIGHT + NEGATIVE_WEIGHT)
+                else:
+                    final_score_0_to_1 = positive_score
+
+                item['debug_positive'] = round(positive_score * 100, 1)
+                item['debug_negative'] = round(negative_score * 100, 1)
+
+            final_score_0_to_1 = max(0.0, min(1.0, final_score_0_to_1))
+            final_score = final_score_0_to_1 * 100
+
+            item['ai_score'] = round(final_score, 2)
+            item['style_model'] = score_source
+
+            title = item.get('title', 'Unknown')[:50]
+            category_label = category[:12]
+            print(f"{title:<50} | Cat: {category_label:<12} | Score: {final_score:5.1f}% | Source: {score_source}", end='')
+
+            if final_score >= min_score_threshold:
+                scored_items.append(item)
+                print(' ✨')
+            else:
+                print(' ❌')
+
+        except Exception as e:
+            print(f"   ⚠️  Error processing item: {e}")
+            continue
+
+    return scored_items
+
+
+def main():
+    args = parse_args()
+
+    model, processor, device, model_type = load_image_model(args.model_choice)
+
+    classifier_file = Path(args.classifier_file)
+    style_classifier = None
+    if classifier_file.exists():
+        try:
+            classifier_data = joblib.load(classifier_file)
+            style_classifier = classifier_data.get('classifier') if isinstance(classifier_data, dict) else classifier_data
+            print(f"✅ Loaded style classifier from {classifier_file.name}")
+        except Exception as e:
+            print(f"⚠️ Failed to load style classifier: {e}")
+
+    print(f"\n{'='*60}")
+    print("Loading taste profiles...")
+    print(f"{'='*60}")
+
+    positive_text_embeds = encode_texts(positive_prompts, model, processor, device, model_type)
+    negative_text_embeds = encode_texts(negative_prompts, model, processor, device, model_type)
+
     try:
-        # Load and encode item image
-        image = Image.open(image_path_str).convert("RGB")
-        
-        if model_type == 'huggingface':
-            item_embedding = encode_image_hf(image, model, processor, device)
-        else:
-            item_embedding = encode_image_st(image, model, device)
-        
-        # Calculate positive similarity
-        positive_similarities = torch.matmul(item_embedding, taste_profile_tensor.T)
-        best_positive_similarity = torch.max(positive_similarities).item()
-        positive_score = (best_positive_similarity + 1) / 2
-        
-        # Calculate negative score if applicable
-        negative_score = 0.0
-        if has_negative_profile:
-            negative_similarities = torch.matmul(item_embedding, negative_profile_tensor.T)
-            best_negative_similarity = torch.max(negative_similarities).item()
-            negative_match = (best_negative_similarity + 1) / 2
-            negative_score = negative_match ** NEGATIVE_PENALTY_POWER
-        
-        # Calculate final score
-        if has_negative_profile:
-            positive_contribution = positive_score * POSITIVE_WEIGHT
-            negative_contribution = negative_score * NEGATIVE_WEIGHT
-            final_score_0_to_1 = (positive_contribution - negative_contribution + NEGATIVE_WEIGHT) / (POSITIVE_WEIGHT + NEGATIVE_WEIGHT)
-        else:
-            final_score_0_to_1 = positive_score
-        
-        final_score_0_to_1 = max(0.0, min(1.0, final_score_0_to_1))
-        final_score = final_score_0_to_1 * 100
-        
-        # Store results
-        item['ai_score'] = round(final_score, 2)
-        item['debug_positive'] = round(positive_score * 100, 1)
-        item['debug_negative'] = round(negative_score * 100, 1)
-        
-        # Debug output
-        title = item.get('title', 'Unknown')[:50]
-        print(f"{title:<50} | Pos: {positive_score*100:5.1f}% | Neg: {negative_score*100:5.1f}% | Final: {final_score:5.1f}%", end="")
-        
-        if final_score >= MIN_SCORE_THRESHOLD:
-            scored_items.append(item)
-            print(" ✨")
-        else:
-            print(" ❌")
-        
-    except Exception as e:
-        print(f"   ⚠️  Error processing item: {e}")
-        continue
+        taste_profile = np.load(args.positive_profile)
+        taste_profile_tensor = torch.tensor(taste_profile, device=device)
+        taste_profile_tensor = torch.cat([taste_profile_tensor, positive_text_embeds], dim=0)
+        print(f"✅ Loaded positive profile ({len(taste_profile)} items)")
+    except FileNotFoundError:
+        print(f"⚠️  No saved positive profile found at {args.positive_profile}.")
+        print(f"   Creating new profile from 'pinterest_images' folder...")
+        taste_profile_tensor = create_profile_from_images(
+            'pinterest_images', model, processor, device, model_type
+        )
+        if taste_profile_tensor is None:
+            print("❌ Cannot create positive profile. Exiting.")
+            return
+        np.save(args.positive_profile, taste_profile_tensor.cpu().numpy())
+        print(f"✅ Created and saved positive profile")
 
-# Sort and save
-scored_items.sort(key=lambda x: x['ai_score'], reverse=True)
+    has_negative_profile = False
+    negative_profile_tensor = None
 
-with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
-    json.dump(scored_items, f, indent=2, ensure_ascii=False)
+    if USE_NEGATIVE_PROFILE and not args.no_negative:
+        try:
+            negative_profile = np.load(args.negative_profile)
+            if len(negative_profile) > 0:
+                negative_profile_tensor = torch.tensor(negative_profile, device=device)
+                negative_profile_tensor = torch.cat([negative_profile_tensor, negative_text_embeds], dim=0)
+                has_negative_profile = True
+                print(f"✅ Loaded negative profile ({len(negative_profile)} items)")
+        except FileNotFoundError:
+            print(f"⚠️  No saved negative profile found at {args.negative_profile}.")
+            print(f"   Creating new profile from 'negative_images' folder...")
+            negative_profile_tensor = create_profile_from_images(
+                'negative_images', model, processor, device, model_type
+            )
+            if negative_profile_tensor is not None:
+                has_negative_profile = True
+                np.save(args.negative_profile, negative_profile_tensor.cpu().numpy())
+                print(f"✅ Created and saved negative profile")
+            else:
+                print(f"ℹ️  No negative profile available")
 
-# Summary
-print(f"\n{'='*60}")
-print(f"✅ SCORING COMPLETE")
-print(f"{'='*60}")
+    try:
+        with open(args.scraped_items, 'r', encoding='utf-8') as f:
+            items = json.load(f)
+        print(f"✅ Loaded {len(items)} items to score")
+    except FileNotFoundError:
+        print(f"❌ Error: Could not find '{args.scraped_items}'.")
+        return
 
-if scored_items:
-    print(f"📊 Found {len(scored_items)} items above {MIN_SCORE_THRESHOLD}% threshold")
-    print(f"💾 Saved to: {OUTPUT_FILE}")
-    print(f"\n🏆 TOP 5 MATCHES:")
-    for idx, item in enumerate(scored_items[:5], 1):
-        score = item['ai_score']
-        title = item['title'][:45]
-        print(f"   {idx}. [{score:5.1f}%] {title}")
-else:
-    print(f"❌ No items scored above {MIN_SCORE_THRESHOLD}%")
-    print(f"💡 Try lowering MIN_SCORE_THRESHOLD or check your profiles")
+    print(f"\n{'='*60}")
+    print(f"🎯 Scoring items with {MODEL_CONFIGS[args.model_choice]['description']}")
+    print(f"{'='*60}\n")
 
-print(f"{'='*60}\n")
+    scored_items = score_items(
+        items,
+        model,
+        processor,
+        device,
+        model_type,
+        taste_profile_tensor,
+        negative_profile_tensor,
+        has_negative_profile,
+        style_classifier,
+        min_score_threshold=args.min_score,
+    )
+
+    scored_items.sort(key=lambda x: x['ai_score'], reverse=True)
+
+    with open(args.output, 'w', encoding='utf-8') as f:
+        json.dump(scored_items, f, indent=2, ensure_ascii=False)
+
+    print(f"\n{'='*60}")
+    print(f"✅ SCORING COMPLETE")
+    print(f"{'='*60}")
+
+    if scored_items:
+        print(f"📊 Found {len(scored_items)} items above {MIN_SCORE_THRESHOLD}% threshold")
+        print(f"💾 Saved to: {args.output}")
+        print(f"\n🏆 TOP 5 MATCHES:")
+        for idx, item in enumerate(scored_items[:5], 1):
+            score = item['ai_score']
+            title = item['title'][:45]
+            print(f"   {idx}. [{score:5.1f}%] {title}")
+    else:
+        print(f"❌ No items scored above {MIN_SCORE_THRESHOLD}%")
+        print(f"💡 Try lowering MIN_SCORE_THRESHOLD or check your profiles")
+
+    print(f"{'='*60}\n")
+
+
+if __name__ == '__main__':
+    main()
