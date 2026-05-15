@@ -1,5 +1,5 @@
 
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -11,6 +11,7 @@ import hashlib
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import os
+from retrain_model import retrain_and_predict
 
 app = FastAPI(title="Fashion Swipe API")
 
@@ -19,7 +20,7 @@ security = HTTPBearer()
 
 # ============ CONFIGURATION ============
 # Change these to your own values!
-ACCESS_TOKEN = "your-secret-token-change-this"  # Simple token auth
+ACCESS_TOKEN = "ahoj"  # Simple token auth
 # Or generate a random one:
 # ACCESS_TOKEN = secrets.token_urlsafe(32)
 # Print it and save it: print(f"Your token: {ACCESS_TOKEN}")
@@ -28,6 +29,8 @@ ACCESS_TOKEN = "your-secret-token-change-this"  # Simple token auth
 PASSWORD = "lokiloki"  # Change this!
 PASSWORD_HASH = hashlib.sha256(PASSWORD.encode()).hexdigest()
 
+
+ITEMS_TO_RETRAIN = 100
 # Enable CORS
 app.add_middleware(
     CORSMiddleware,
@@ -182,8 +185,9 @@ async def get_next_item(token: str = Depends(verify_token)):
 }
 
 @app.post("/api/rate")
-async def rate_item(rating: Rating, token: str = Depends(verify_token)):
+async def rate_item(rating: Rating, background_tasks: BackgroundTasks, token: str = Depends(verify_token)):
     """Submit a rating for an item - PROTECTED"""
+    print("Rating")
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
@@ -204,11 +208,14 @@ async def rate_item(rating: Rating, token: str = Depends(verify_token)):
     count = c.fetchone()[0]
     conn.close()
 
-    should_retrain = count > 0 and count % 20 == 0
+    should_retrain = count > 0 and count % ITEMS_TO_RETRAIN == 0
 
     if should_retrain:
         print("🔄 Triggering model retraining...")
-        # retrain_model()  # Uncomment when ready
+        background_tasks.add_task(retrain_and_predict)
+    else: 
+        print(count % ITEMS_TO_RETRAIN, "ratings so far.")
+       
 
     return {"status": "success", "message": "Rating saved"}
 
@@ -260,11 +267,35 @@ async def export_ratings(token: str = Depends(verify_token)):
     return ratings
 
 @app.post("/api/retrain")
-async def trigger_retrain(token: str = Depends(verify_token)):
+async def trigger_retrain(background_tasks: BackgroundTasks, token: str = Depends(verify_token)):
     """Manually trigger model retraining - PROTECTED"""
-    print("🧠 Starting model retraining...")
-    #retrain_model()
+    print("API: Manual retraining triggered via API endpoint.")
+    
+    # This tells FastAPI to run the AI function in the background
+    # after it has already sent the response.
+    background_tasks.add_task(retrain_and_predict)
+    
     return {"status": "retraining_started"}
+
+class SkipRequest(BaseModel):
+    item_id: str
+
+@app.post("/api/skip")
+async def skip_item(skip_request: SkipRequest, token: str = Depends(verify_token)):
+    """Mark an item as shown without rating it - PROTECTED"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    
+    # Just update the 'shown' flag, don't add to ratings table
+    c.execute(
+        "UPDATE items SET shown = 1 WHERE id = ?",
+        (skip_request.item_id,)
+    )
+    
+    conn.commit()
+    conn.close()
+    
+    return {"status": "success", "message": "Item skipped"}
     
 
 # =======================================================
@@ -280,7 +311,7 @@ if os.path.exists(BUILD_DIR) and os.path.isdir(BUILD_DIR):
 
     # This is a "catch-all" route. If a request doesn't match any of the API routes above,
     # it will serve the main index.html file of your React app.
-    app.mount("/images", StaticFiles(directory=os.path.join(SCRIPT_DIR, "vinted_images")), name="images")
+    app.mount("/vinted_images", StaticFiles(directory=os.path.join(SCRIPT_DIR, "vinted_images")), name="images")
 
     @app.get("/{full_path:path}", response_class=FileResponse)
     async def serve_react_app(full_path: str):
