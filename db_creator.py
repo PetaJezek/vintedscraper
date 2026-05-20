@@ -33,6 +33,25 @@ def init_db():
     conn.close()
 
 
+def migrate_db():
+    """Add columns that were missing from older DB versions created by backend.py."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    existing = {row[1] for row in c.execute("PRAGMA table_info(items)").fetchall()}
+    additions = {
+        "url":        "TEXT",
+        "scraped_at": "TEXT",
+        "tag":        "TEXT",
+        "location":   "TEXT",
+    }
+    for col, typ in additions.items():
+        if col not in existing:
+            c.execute(f"ALTER TABLE items ADD COLUMN {col} {typ}")
+            print(f"  migrated: added column '{col}'")
+    conn.commit()
+    conn.close()
+
+
 def populate_items():
     if not os.path.exists(JSON_PATH):
         print(f"Error: JSON file not found at {JSON_PATH}")
@@ -79,14 +98,25 @@ def populate_items():
         # --- END OF UPDATED IMAGE URL LOGIC ---
 
         c.execute('''
-            INSERT OR REPLACE INTO items (
+            INSERT INTO items (
                 id, url, scraped_at, tag, title, brand, price, location, size, description, image_url
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                url        = excluded.url,
+                scraped_at = excluded.scraped_at,
+                tag        = excluded.tag,
+                title      = excluded.title,
+                brand      = excluded.brand,
+                price      = excluded.price,
+                location   = excluded.location,
+                size       = excluded.size,
+                description= excluded.description,
+                image_url  = excluded.image_url
         ''', (
             item.get("id"), item.get("url"), item.get("scraped_at"), item.get("tag"), item.get("title"),
-            brand_to_store, # Use our newly extracted brand
+            brand_to_store,
             item.get("price"), item.get("location"), item.get("size"), item.get("description"),
-            image_path_to_store # Use our newly created URL path
+            image_path_to_store
         ))
 
     conn.commit()
@@ -96,4 +126,5 @@ def populate_items():
 
 if __name__ == "__main__":
     init_db()
+    migrate_db()
     populate_items()

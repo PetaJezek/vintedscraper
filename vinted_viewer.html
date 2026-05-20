@@ -3,504 +3,850 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vinted Items Viewer</title>
+    <title>Vinted Debug Viewer</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        :root {
+            --bg: #1a1b26;
+            --surface: #222336;
+            --card: #2a2b40;
+            --card-hover: #32334c;
+            --border: #3c3d58;
+            --text: #f4f4fc;
+            --muted: #b0b0d0;
+            --accent: #8b6fd4;
+            --accent-hi: #a98ee8;
+            --green: #5de899;
+            --red: #ff7070;
+            --yellow: #fbbf24;
         }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-
-        header {
-            background: white;
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            margin-bottom: 30px;
-        }
-
-        h1 {
-            color: #333;
-            font-size: 2.5em;
-            margin-bottom: 10px;
-        }
-
-        .stats {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg);
+            color: var(--text);
             display: flex;
-            gap: 30px;
-            margin-top: 20px;
-            flex-wrap: wrap;
+            height: 100vh;
+            overflow: hidden;
         }
 
-        .stat {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 15px 25px;
-            border-radius: 10px;
+        /* ── SIDEBAR ────────────────────────────────── */
+        .sidebar {
+            width: 272px;
+            min-width: 272px;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            padding: 20px 16px;
+            gap: 18px;
+        }
+
+        .sidebar-logo {
             font-size: 1.1em;
+            font-weight: 700;
+            color: var(--accent-hi);
+            padding-bottom: 14px;
+            border-bottom: 1px solid var(--border);
+            line-height: 1.5;
         }
+        .sidebar-logo small { color: var(--muted); font-weight: 400; font-size: 0.7em; display: block; }
 
-        .stat strong {
-            font-size: 1.5em;
-            display: block;
-        }
-
-        .controls {
-            background: white;
-            padding: 20px;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            margin-bottom: 30px;
-            display: flex;
-            gap: 15px;
-            flex-wrap: wrap;
-            align-items: center;
-        }
-
-        input, select, button {
-            padding: 12px 20px;
-            border: 2px solid #ddd;
-            border-radius: 8px;
-            font-size: 1em;
-            transition: all 0.3s;
-        }
-
-        input:focus, select:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-
-        button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
+        .drop-zone {
+            border: 2px dashed var(--border);
+            border-radius: 10px;
+            padding: 18px 12px;
+            text-align: center;
             cursor: pointer;
-            font-weight: bold;
+            transition: border-color 0.2s, background 0.2s;
+        }
+        .drop-zone:hover, .drop-zone.drag-over {
+            border-color: var(--accent);
+            background: rgba(124,92,191,0.08);
+        }
+        .drop-zone-icon { font-size: 1.6em; margin-bottom: 4px; }
+        .drop-zone strong { font-size: 0.85em; color: var(--accent-hi); display: block; }
+        .drop-zone p { font-size: 0.72em; color: var(--muted); margin-top: 3px; }
+        #fileInput { display: none; }
+
+        .filter-group { display: flex; flex-direction: column; gap: 7px; }
+
+        .filter-label {
+            font-size: 0.65em;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--muted);
         }
 
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        .search-input {
+            width: 100%;
+            padding: 9px 11px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            color: var(--text);
+            font-size: 0.85em;
         }
+        .search-input:focus { outline: none; border-color: var(--accent); }
+        .search-input::placeholder { color: var(--muted); }
 
-        #searchInput {
+        .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+
+        .chip {
+            padding: 3px 9px;
+            border-radius: 20px;
+            font-size: 0.72em;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: var(--card);
+            color: var(--muted);
+            transition: all 0.15s;
+            user-select: none;
+        }
+        .chip:hover { border-color: var(--accent); color: var(--text); }
+        .chip.active { background: var(--accent); border-color: var(--accent); color: white; }
+
+        .range-row { display: flex; gap: 6px; align-items: center; }
+        .range-input {
             flex: 1;
-            min-width: 250px;
+            padding: 7px 8px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 0.82em;
+            min-width: 0;
         }
+        .range-input:focus { outline: none; border-color: var(--accent); }
+        .range-input::placeholder { color: var(--muted); }
+        .range-sep { color: var(--muted); font-size: 0.8em; flex-shrink: 0; }
+
+        .score-row { display: flex; flex-direction: column; gap: 5px; }
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 4px;
+            border-radius: 2px;
+            background: var(--border);
+            outline: none;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+        }
+        .slider-labels { display: flex; justify-content: space-between; font-size: 0.7em; color: var(--muted); }
+
+        .clear-btn {
+            width: 100%;
+            padding: 9px;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            color: var(--muted);
+            cursor: pointer;
+            font-size: 0.82em;
+            transition: all 0.2s;
+        }
+        .clear-btn:hover { border-color: var(--red); color: var(--red); background: rgba(248,113,113,0.06); }
+
+        /* ── MAIN ───────────────────────────────────── */
+        .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+        .stats-bar {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 7px 14px;
+            display: flex;
+            gap: 14px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .stat { display: flex; align-items: baseline; gap: 5px; }
+        .stat-val { font-size: 0.95em; font-weight: 700; color: var(--accent-hi); }
+        .stat-lbl { font-size: 0.62em; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+        .stat-div { width: 1px; height: 14px; background: var(--border); flex-shrink: 0; }
+
+        .toolbar {
+            padding: 6px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border);
+            gap: 10px;
+        }
+        .result-count { font-size: 0.78em; color: var(--muted); }
+
+        .toolbar-right { display: flex; gap: 8px; align-items: center; }
+
+        .sort-sel {
+            padding: 6px 10px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 0.8em;
+        }
+        .sort-sel:focus { outline: none; }
+
+        .save-btn {
+            padding: 6px 14px;
+            background: var(--accent);
+            border: none;
+            border-radius: 6px;
+            color: white;
+            cursor: pointer;
+            font-size: 0.8em;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+        .save-btn:hover { background: var(--accent-hi); }
+
+        /* ── GRID ───────────────────────────────────── */
+        .grid-wrap { flex: 1; overflow-y: auto; padding: 12px 14px; }
 
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 25px;
+            grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+            gap: 10px;
+            align-items: start;
         }
 
         .item-card {
-            background: white;
-            border-radius: 15px;
+            background: var(--card);
+            border-radius: 8px;
             overflow: hidden;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            transition: transform 0.3s, box-shadow 0.3s;
+            border: 1px solid var(--border);
+            transition: border-color 0.15s, box-shadow 0.15s;
             position: relative;
         }
-
-        .item-card-link {
-            text-decoration: none;
-            color: inherit;
-            display: block;
-        }
-
         .item-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+            border-color: var(--accent);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.35);
         }
 
-        .delete-btn {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            background: rgba(220, 53, 69, 0.8);
-            color: white;
-            border: none;
-            border-radius: 50%;
-            width: 30px;
-            height: 30px;
-            cursor: pointer;
-            font-size: 1em;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.3s;
-            z-index: 10;
-        }
-
-        .delete-btn:hover {
-            background: rgba(220, 53, 69, 1);
-            transform: scale(1.1);
-        }
-
-        .ai-score-badge {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 8px 12px;
-            border-radius: 8px;
-            font-weight: bold;
-            font-size: 0.9em;
-            z-index: 5;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-        }
-
-        .item-image {
+        /* image */
+        .card-img-wrap {
+            position: relative;
             width: 100%;
-            height: 250px;
-            object-fit: cover;
-            background: #f0f0f0;
-        }
-
-        .item-content {
-            padding: 20px;
-        }
-
-        .item-title {
-            font-size: 1.2em;
-            font-weight: bold;
-            margin-bottom: 10px;
-            color: #333;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            line-clamp: 2;
-            -webkit-box-orient: vertical;
+            height: 148px;
+            background: var(--surface);
             overflow: hidden;
         }
-
-        .item-price {
-            font-size: 1.5em;
-            color: #667eea;
-            font-weight: bold;
-            margin-bottom: 10px;
+        .item-thumb {
+            width: 100%; height: 100%;
+            object-fit: cover;
+            display: block;
+            transition: transform 0.25s;
         }
+        .item-card:hover .item-thumb { transform: scale(1.04); }
 
-        .item-details {
+        /* overlay buttons — appear on hover */
+        .card-actions {
+            position: absolute;
+            top: 5px; right: 5px;
             display: flex;
             flex-direction: column;
-            gap: 5px;
-            font-size: 0.9em;
-            color: #666;
+            gap: 3px;
+            opacity: 0;
+            transition: opacity 0.15s;
         }
+        .item-card:hover .card-actions { opacity: 1; }
 
-        .item-detail {
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-
-        .no-items {
-            text-align: center;
-            padding: 60px;
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }
-
-        .no-items h2 {
-            color: #333;
-            margin-bottom: 15px;
-        }
-
-        .file-upload {
-            background: white;
-            padding: 20px;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            margin-bottom: 30px;
-            text-align: center;
-        }
-
-        .upload-label {
-            display: inline-block;
-            padding: 15px 30px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border-radius: 8px;
+        .act-btn {
+            width: 26px; height: 26px;
+            border-radius: 5px;
+            border: none;
             cursor: pointer;
-            font-weight: bold;
-            transition: all 0.3s;
+            font-size: 0.75em;
+            display: flex; align-items: center; justify-content: center;
+            backdrop-filter: blur(6px);
+            transition: transform 0.12s, filter 0.12s;
         }
+        .act-btn:hover { transform: scale(1.12); filter: brightness(1.2); }
+        .act-del   { background: rgba(255,80,80,0.82); color: white; }
+        .act-polish { background: rgba(255,255,255,0.18); font-size: 1em; }
 
-        .upload-label:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        /* score badge overlaid on image */
+        .score-badge {
+            position: absolute;
+            top: 5px; left: 5px;
+            padding: 2px 7px;
+            border-radius: 6px;
+            font-size: 0.68em;
+            font-weight: 700;
         }
+        .sc-high  { background: rgba(93,232,153,0.88);  color: #052e16; }
+        .sc-mid   { background: rgba(251,191,36,0.88);  color: #1c0f00; }
+        .sc-low   { background: rgba(255,112,112,0.88); color: #2d0a0a; }
 
-        #fileInput {
-            display: none;
+        /* card info strip */
+        .card-info { padding: 8px 9px 10px; }
+        .card-price {
+            font-size: 0.9em;
+            font-weight: 700;
+            color: var(--green);
+            margin-bottom: 3px;
         }
+        .card-title {
+            font-size: 0.78em;
+            color: var(--text);
+            font-weight: 500;
+            line-height: 1.35;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            margin-bottom: 6px;
+        }
+        .card-meta { display: flex; flex-wrap: wrap; gap: 3px; }
+        .meta-tag {
+            padding: 1px 5px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 0.62em;
+            color: var(--muted);
+        }
+        .meta-shown { color: var(--green); border-color: rgba(93,232,153,0.3); background: rgba(93,232,153,0.07); }
+
+        .card-link { text-decoration: none; color: inherit; }
+
+        .empty-state {
+            grid-column: 1/-1;
+            text-align: center;
+            padding: 80px 30px;
+            color: var(--muted);
+        }
+        .empty-icon { font-size: 2.8em; margin-bottom: 14px; }
+        .empty-state h2 { font-size: 1em; margin-bottom: 6px; color: var(--text); }
+        .empty-state p { font-size: 0.8em; }
+        .empty-state code { background: var(--card); padding: 1px 5px; border-radius: 4px; }
+
+        /* scrollbar */
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+        select { cursor: pointer; }
+
+        option { background: #1a1a28; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>🛍️ Vinted Items Viewer</h1>
-            <div class="stats">
-                <div class="stat">
-                    <span>Total Items</span>
-                    <strong id="totalCount">0</strong>
-                </div>
-                <div class="stat">
-                    <span>Displayed</span>
-                    <strong id="displayedCount">0</strong>
-                </div>
-                <div class="stat">
-                    <span>Last Updated</span>
-                    <strong id="lastUpdate">Never</strong>
-                </div>
-            </div>
-        </header>
 
-        <div class="file-upload">
-            <label for="fileInput" class="upload-label">
-                📁 Load vinted_items.json
-            </label>
-            <input type="file" id="fileInput" accept=".json">
-            <p style="margin-top: 10px; color: #666;">Select the JSON file created by the scraper</p>
-        </div>
-
-        <div class="controls">
-            <input type="text" id="searchInput" placeholder="🔍 Search by title, brand...">
-            <select id="tagFilter">
-                <option value="">Filter by Tag</option>
-            </select>
-            <select id="sortBy">
-                <option value="score">🎯 AI Score (Highest)</option>
-                <option value="date">Newest First</option>
-                <option value="price-low">Price: Low to High</option>
-                <option value="price-high">Price: High to Low</option>
-                <option value="title">Title A-Z</option>
-            </select>
-            <button onclick="clearFilters()">Clear Filters</button>
-            <button onclick="saveChanges()">💾 Save & Download JSON</button>
-        </div>
-
-        <div class="grid" id="itemsGrid"></div>
+<!-- ── SIDEBAR ──────────────────────────────────────── -->
+<div class="sidebar">
+    <div class="sidebar-logo">
+        Vinted Viewer
+        <small>debug tool</small>
     </div>
 
-    <script>
-        let allItems = [];
-        let filteredItems = [];
+    <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+        <div class="drop-zone-icon">📂</div>
+        <strong>Load JSON file</strong>
+        <p>vinted_items.json · scored_items.json</p>
+    </div>
+    <input type="file" id="fileInput" accept=".json">
 
-        // Add event listeners
-        document.getElementById('fileInput').addEventListener('change', loadFile);
-        document.getElementById('searchInput').addEventListener('input', applyFilters);
-        document.getElementById('tagFilter').addEventListener('change', applyFilters);
-        document.getElementById('sortBy').addEventListener('change', applyFilters);
+    <div class="filter-group">
+        <div class="filter-label">Or load from backend DB</div>
+        <input type="text" class="search-input" id="apiToken" placeholder="Bearer token (from backend.py)" style="font-size:0.75em;">
+        <button class="save-btn" style="width:100%;margin-top:4px" onclick="loadFromDB()">Fetch from DB (port 8000)</button>
+        <div id="dbStatus" style="font-size:0.7em;color:var(--muted);margin-top:2px;"></div>
+        <button id="exportPolishBtn" hidden
+                onclick="exportPolishLocal()"
+                style="width:100%;margin-top:4px;padding:7px;background:transparent;border:1px solid #fbbf24;border-radius:6px;color:#fbbf24;cursor:pointer;font-size:0.76em;">
+            Export 0 Polish flags as JSON
+        </button>
+    </div>
 
-        function loadFile(e) {
-            const file = e.target.files[0];
-            if (!file) return;
+    <div class="filter-group">
+        <div class="filter-label">Search</div>
+        <input type="text" class="search-input" id="searchInput" placeholder="Title, brand, description…">
+    </div>
 
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                try {
-                    allItems = JSON.parse(e.target.result);
-                    filteredItems = [...allItems];
-                    populateTagFilter();
-                    updateStats();
-                    applyFilters();
-                } catch (err) {
-                    alert('Error loading JSON file: ' + err.message);
-                }
-            };
-            reader.readAsText(file);
+    <div class="filter-group">
+        <div class="filter-label">Category / Tag</div>
+        <div class="chips" id="tagChips"><span style="font-size:0.75em;color:var(--muted)">Load a file first</span></div>
+    </div>
+
+    <div class="filter-group">
+        <div class="filter-label">Size</div>
+        <div class="chips" id="sizeChips"><span style="font-size:0.75em;color:var(--muted)">Load a file first</span></div>
+    </div>
+
+    <div class="filter-group">
+        <div class="filter-label">Price range</div>
+        <div class="range-row">
+            <input type="number" class="range-input" id="priceMin" placeholder="Min" min="0">
+            <span class="range-sep">—</span>
+            <input type="number" class="range-input" id="priceMax" placeholder="Max" min="0">
+        </div>
+    </div>
+
+    <div class="filter-group" id="scoreGroup" style="display:none">
+        <div class="filter-label">Min AI Score</div>
+        <div class="score-row">
+            <input type="range" id="scoreSlider" min="0" max="100" value="0">
+            <div class="slider-labels">
+                <span>0%</span>
+                <span id="scoreVal" style="color:var(--text)">Any</span>
+                <span>100%</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="filter-group">
+        <div class="filter-label">Currency symbol</div>
+        <select class="sort-sel" id="currencySymbol" style="width:100%;padding:8px 10px;font-size:0.82em;">
+            <option value="auto">Auto-detect</option>
+            <option value="Kč">Kč (CZK)</option>
+            <option value="€">€ (EUR)</option>
+            <option value="zł">zł (PLN)</option>
+            <option value="£">£ (GBP)</option>
+            <option value="$">$ (USD)</option>
+        </select>
+    </div>
+
+    <button class="clear-btn" onclick="clearFilters()">Clear all filters</button>
+</div>
+
+<!-- ── MAIN ─────────────────────────────────────────── -->
+<div class="main">
+
+    <div class="stats-bar">
+        <div class="stat">
+            <div class="stat-val" id="sTotal">0</div>
+            <div class="stat-lbl">Total</div>
+        </div>
+        <div class="stat-div"></div>
+        <div class="stat">
+            <div class="stat-val" id="sShown">0</div>
+            <div class="stat-lbl">Shown</div>
+        </div>
+        <div class="stat-div"></div>
+        <div class="stat">
+            <div class="stat-val" id="sAvgScore">—</div>
+            <div class="stat-lbl">Avg AI Score</div>
+        </div>
+        <div class="stat-div"></div>
+        <div class="stat">
+            <div class="stat-val" id="sAvgPrice">—</div>
+            <div class="stat-lbl">Avg Price</div>
+        </div>
+        <div class="stat-div"></div>
+        <div class="stat">
+            <div class="stat-val" id="sDate">—</div>
+            <div class="stat-lbl">Last Scraped</div>
+        </div>
+    </div>
+
+    <div class="toolbar">
+        <span class="result-count" id="resultCount">Load a JSON file to get started</span>
+        <div class="toolbar-right">
+            <select class="sort-sel" id="sortBy">
+                <option value="score-desc">AI Score ↓</option>
+                <option value="score-asc">AI Score ↑</option>
+                <option value="date-desc">Newest first</option>
+                <option value="price-asc">Price ↑</option>
+                <option value="price-desc">Price ↓</option>
+                <option value="title-asc">Title A–Z</option>
+            </select>
+            <button class="save-btn" onclick="saveChanges()">Save JSON</button>
+        </div>
+    </div>
+
+    <div class="grid-wrap">
+        <div class="grid" id="itemsGrid">
+            <div class="empty-state">
+                <div class="empty-icon">🛍️</div>
+                <h2>No items loaded</h2>
+                <p>Load a <code>vinted_items.json</code> or <code>scored_items.json</code><br>from the sidebar to begin.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let allItems = [];
+    let filteredItems = [];
+    let activeTags = new Set();
+    let activeSizes = new Set();
+    let hasScores = false;
+    let detectedCurrency = 'Kč';
+
+    function detectCurrency(items) {
+        for (const item of items) {
+            const p = item.price || '';
+            if (p.includes('Kč') || p.includes('CZK')) return 'Kč';
+            if (p.includes('zł') || p.includes('PLN')) return 'zł';
+            if (p.includes('£') || p.includes('GBP')) return '£';
+            if (p.includes('$') || p.includes('USD')) return '$';
+            if (p.includes('€') || p.includes('EUR')) return '€';
         }
+        return 'Kč';
+    }
 
-        function populateTagFilter() {
-            const tagFilter = document.getElementById('tagFilter');
-            const tags = [...new Set(allItems.map(item => item.tag).filter(Boolean))];
-            tags.sort();
-            
-            tagFilter.innerHTML = '<option value="">All Tags</option>';
-            tags.forEach(tag => {
-                const option = document.createElement('option');
-                option.value = tag;
-                option.textContent = tag;
-                tagFilter.appendChild(option);
+    function getCurrencySymbol() {
+        const sel = document.getElementById('currencySymbol').value;
+        return sel === 'auto' ? detectedCurrency : sel;
+    }
+
+    document.getElementById('currencySymbol').addEventListener('change', updateStats);
+
+    // ── DB LOADING ────────────────────────────────────
+    async function loadFromDB() {
+        const token = document.getElementById('apiToken').value.trim();
+        const status = document.getElementById('dbStatus');
+        if (!token) { status.textContent = 'Enter a token first.'; return; }
+        status.textContent = 'Fetching…';
+        try {
+            const res = await fetch('http://localhost:8000/api/items/all', {
+                headers: { 'Authorization': `Bearer ${token}` }
             });
-        }
-
-        function applyFilters() {
-            const query = document.getElementById('searchInput').value.toLowerCase();
-            const selectedTag = document.getElementById('tagFilter').value;
-            
-            let tempItems = [...allItems];
-
-            // 1. Filter by selected tag
-            if (selectedTag) {
-                tempItems = tempItems.filter(item => item.tag === selectedTag);
-            }
-
-            // 2. Filter by search query
-            if (query) {
-                tempItems = tempItems.filter(item => {
-                    return (item.title?.toLowerCase().includes(query)) ||
-                           (item.brand?.toLowerCase().includes(query)) ||
-                           (item.location?.toLowerCase().includes(query)) ||
-                           (item.description?.toLowerCase().includes(query));
-                });
-            }
-
-            filteredItems = tempItems;
-            sortAndRender();
-        }
-
-        function sortAndRender() {
-            const sortBy = document.getElementById('sortBy').value;
-            
-            filteredItems.sort((a, b) => {
-                switch(sortBy) {
-                    case 'score':
-                        return (b.ai_score || 0) - (a.ai_score || 0);
-                    case 'date':
-                        return new Date(b.scraped_at) - new Date(a.scraped_at);
-                    case 'price-low':
-                        return parsePrice(a.price) - parsePrice(b.price);
-                    case 'price-high':
-                        return parsePrice(b.price) - parsePrice(a.price);
-                    case 'title':
-                        return (a.title || '').localeCompare(b.title || '');
-                    default:
-                        return 0;
+            if (!res.ok) { status.textContent = `Error ${res.status}: ${await res.text()}`; return; }
+            let data = await res.json();
+            // image_url is stored as /images/xxx.jpg — prefix the backend host
+            data.forEach(item => {
+                if (item.image_url && item.image_url.startsWith('/')) {
+                    item.image_url = 'http://localhost:8000' + item.image_url;
                 }
             });
-            
-            renderItems();
+            allItems = data;
+            hasScores = allItems.some(i => i.ai_score != null);
+            document.getElementById('scoreGroup').style.display = hasScores ? 'flex' : 'none';
+            detectedCurrency = detectCurrency(allItems);
+            activeTags.clear(); activeSizes.clear();
+            populateSidebar(); updateStats(); applyFilters();
+            document.getElementById('dropZone').innerHTML =
+                `<div class="drop-zone-icon">🗄️</div><strong>DB loaded</strong><p>${allItems.length} items from backend</p>`;
+            status.textContent = `Loaded ${allItems.length} items.`;
+        } catch (e) {
+            status.textContent = 'Could not reach localhost:8000 — is the backend running?';
         }
+    }
 
-        function parsePrice(priceStr) {
-            if (!priceStr) return 0;
-            const match = priceStr.match(/[\d\s,.]+/);
-            if (!match) return 0;
-            return parseFloat(match[0].replace(/[\s,]/g, '').replace('.', '.'));
-        }
+    // ── FILE LOADING ──────────────────────────────────
+    const dropZone = document.getElementById('dropZone');
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+    dropZone.addEventListener('drop', e => {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
+        if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+    });
+    document.getElementById('fileInput').addEventListener('change', e => {
+        if (e.target.files[0]) loadFile(e.target.files[0]);
+    });
 
-        function renderItems() {
-            const grid = document.getElementById('itemsGrid');
-            
-            if (filteredItems.length === 0 && allItems.length > 0) {
-                grid.innerHTML = `<div class="no-items" style="grid-column: 1/-1;"><h2>No items match your filters</h2><p>Try adjusting your search or click "Clear Filters"</p></div>`;
-            } else if (allItems.length === 0) {
-                 grid.innerHTML = `<div class="no-items" style="grid-column: 1/-1;"><h2>No items to display</h2><p>Please load a vinted_items.json file to begin.</p></div>`;
-            } else {
-                grid.innerHTML = filteredItems.map(item => `
-                    <div class="item-card">
-                        ${item.ai_score ? `<div class="ai-score-badge">🎯 ${item.ai_score}%</div>` : ''}
-                        <button class="delete-btn" onclick="deleteItem('${item.id}', '${item.image_url}')" title="Delete Item">❌</button>
-                        <a href="${item.url}" target="_blank" class="item-card-link">
-                            <img class="item-image" src="${item.image_url || 'https://via.placeholder.com/300x250?text=No+Image'}" alt="${item.title || 'Item'}" onerror="this.src='https://via.placeholder.com/300x250?text=No+Image'">
-                            <div class="item-content">
-                                <div class="item-title">${item.title || 'No title'}</div>
-                                <div class="item-price">${item.price || 'Price N/A'}</div>
-                                <div class="item-details">
-                                    ${item.brand ? `<div class="item-detail">🏷️ ${item.brand}</div>` : ''}
-                                    ${item.tag ? `<div class="item-detail">🔖 ${item.tag}</div>` : ''}
-                                    ${item.location ? `<div class="item-detail">📍 ${item.location}</div>` : ''}
-                                    ${item.size ? `<div class="item-detail">📏 Size ${item.size}</div>` : ''}
-                                    <div class="item-detail">🕒 ${new Date(item.scraped_at).toLocaleDateString()}</div>
-                                </div>
-                            </div>
-                        </a>
-                    </div>
-                `).join('');
-            }
-            updateStats();
-        }
-
-        async function deleteItem(itemId, imageUrl) {
-            // Extract the filename from the full image path
-            const imageName = imageUrl.split('/').pop();
-
-            // --- Send request to the backend to move the image ---
+    function loadFile(file) {
+        const reader = new FileReader();
+        reader.onload = e => {
             try {
-                const response = await fetch('http://127.0.0.1:5000/move_to_negative', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ image_name: imageName }),
+                let data = JSON.parse(e.target.result);
+                if (!Array.isArray(data)) data = [data];
+                allItems = data;
+
+                // Normalise score field — scorer uses "ai_score", db uses "predicted_score"
+                allItems.forEach(item => {
+                    if (item.ai_score == null && item.predicted_score != null) {
+                        item.ai_score = parseFloat(item.predicted_score) * 100;
+                    }
                 });
+                hasScores = allItems.some(i => i.ai_score != null);
+                document.getElementById('scoreGroup').style.display = hasScores ? 'flex' : 'none';
+                detectedCurrency = detectCurrency(allItems);
 
-                const result = await response.json();
+                activeTags.clear();
+                activeSizes.clear();
+                populateSidebar();
+                updateStats();
+                applyFilters();
 
-                if (!response.ok) {
-                    // If the server reported an error, show it but still remove the item visually
-                    alert(`Server Error: ${result.message}`);
-                } else {
-                    console.log(`Successfully moved ${imageName} to negative folder.`);
-                }
-            } catch (error) {
-                // If the server isn't running, this will fail
-                console.error('Could not connect to the feedback server.', error);
-                alert('Could not connect to the feedback server. Make sure it is running.');
+                dropZone.innerHTML = `<div class="drop-zone-icon">✅</div><strong>${file.name}</strong><p>${allItems.length} items loaded</p>`;
+            } catch (err) {
+                alert('Error parsing JSON: ' + err.message);
             }
-            
-            // --- Remove the item from the view ---
-            allItems = allItems.filter(item => item.id.toString() !== itemId.toString());
-            applyFilters();
-        }
+        };
+        reader.readAsText(file);
+    }
 
-        function saveChanges() {
-            if (allItems.length === 0) {
-                alert("There are no items to save.");
-                return;
+    // ── SIDEBAR POPULATION ────────────────────────────
+    function populateSidebar() {
+        buildChips(
+            [...new Set(allItems.map(i => i.tag).filter(Boolean))].sort(),
+            'tagChips', activeTags
+        );
+        buildChips(
+            [...new Set(allItems.map(i => i.size).filter(Boolean))].sort(sizeSort),
+            'sizeChips', activeSizes
+        );
+    }
+
+    function buildChips(values, containerId, activeSet) {
+        const container = document.getElementById(containerId);
+        if (!values.length) { container.innerHTML = '<span style="font-size:0.75em;color:var(--muted)">None found</span>'; return; }
+        container.innerHTML = '';
+        values.forEach(v => {
+            const chip = document.createElement('div');
+            chip.className = 'chip';
+            chip.textContent = v;
+            chip.onclick = () => {
+                if (activeSet.has(v)) { activeSet.delete(v); chip.classList.remove('active'); }
+                else { activeSet.add(v); chip.classList.add('active'); }
+                applyFilters();
+            };
+            container.appendChild(chip);
+        });
+    }
+
+    function sizeSort(a, b) {
+        const order = ['XS','S','M','L','XL','XXL','2XL','3XL'];
+        const ia = order.indexOf(a.toUpperCase());
+        const ib = order.indexOf(b.toUpperCase());
+        if (ia !== -1 && ib !== -1) return ia - ib;
+        if (ia !== -1) return -1;
+        if (ib !== -1) return 1;
+        return a.localeCompare(b, undefined, { numeric: true });
+    }
+
+    // ── REACTIVE INPUTS ───────────────────────────────
+    ['searchInput', 'priceMin', 'priceMax'].forEach(id =>
+        document.getElementById(id).addEventListener('input', applyFilters)
+    );
+    document.getElementById('sortBy').addEventListener('change', applyFilters);
+    document.getElementById('scoreSlider').addEventListener('input', function () {
+        const v = parseInt(this.value);
+        document.getElementById('scoreVal').textContent = v === 0 ? 'Any' : v + '%';
+        applyFilters();
+    });
+
+    // ── FILTERING & SORTING ───────────────────────────
+    function applyFilters() {
+        const q = document.getElementById('searchInput').value.toLowerCase();
+        const pMin = parseFloat(document.getElementById('priceMin').value) || 0;
+        const pMax = parseFloat(document.getElementById('priceMax').value) || Infinity;
+        const minScore = parseInt(document.getElementById('scoreSlider').value) || 0;
+
+        filteredItems = allItems.filter(item => {
+            if (activeTags.size && !activeTags.has(item.tag)) return false;
+            if (activeSizes.size && !activeSizes.has(item.size)) return false;
+            if (q) {
+                const hay = [item.title, item.brand, item.description, item.location, item.tag]
+                    .filter(Boolean).join(' ').toLowerCase();
+                if (!hay.includes(q)) return false;
             }
+            const p = parsePrice(item.price);
+            if (p < pMin || p > pMax) return false;
+            if (hasScores && minScore > 0 && (item.ai_score ?? 0) < minScore) return false;
+            return true;
+        });
 
-            const jsonString = JSON.stringify(allItems, null, 2);
-            const blob = new Blob([jsonString], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'vinted_items.json';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        }
+        sortAndRender();
+    }
 
-        function updateStats() {
-            document.getElementById('totalCount').textContent = allItems.length;
-            document.getElementById('displayedCount').textContent = filteredItems.length;
-            
-            if (allItems.length > 0) {
-                const latestDate = new Date(Math.max(...allItems.map(i => new Date(i.scraped_at))));
-                document.getElementById('lastUpdate').textContent = latestDate.toLocaleString();
-            } else {
-                 document.getElementById('lastUpdate').textContent = 'Never';
+    function sortAndRender() {
+        const sort = document.getElementById('sortBy').value;
+        filteredItems.sort((a, b) => {
+            switch (sort) {
+                case 'score-desc': return (b.ai_score ?? -1) - (a.ai_score ?? -1);
+                case 'score-asc':  return (a.ai_score ?? 101) - (b.ai_score ?? 101);
+                case 'date-desc':  return new Date(b.scraped_at) - new Date(a.scraped_at);
+                case 'price-asc':  return parsePrice(a.price) - parsePrice(b.price);
+                case 'price-desc': return parsePrice(b.price) - parsePrice(a.price);
+                case 'title-asc':  return (a.title || '').localeCompare(b.title || '');
+                default: return 0;
             }
-        }
-
-        function clearFilters() {
-            document.getElementById('searchInput').value = '';
-            document.getElementById('tagFilter').value = '';
-            document.getElementById('sortBy').value = 'score';
-            applyFilters();
-        }
-
-        // Initial render on page load
+        });
         renderItems();
-    </script>
+    }
+
+    function parsePrice(p) {
+        if (!p) return 0;
+        const m = p.match(/[\d]+[.,]?[\d]*/);
+        return m ? parseFloat(m[0].replace(',', '.')) : 0;
+    }
+
+    // ── RENDERING ─────────────────────────────────────
+    function scoreClass(s) {
+        if (s >= 75) return 'sc-high';
+        if (s >= 45) return 'sc-mid';
+        return 'sc-low';
+    }
+
+    const PLACEHOLDER = `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='175' height='148'><rect width='175' height='148' fill='%2322233a'/></svg>`;
+
+    function renderItems() {
+        const grid = document.getElementById('itemsGrid');
+
+        if (!allItems.length) {
+            grid.innerHTML = `<div class="empty-state"><div class="empty-icon">🛍️</div><h2>No items loaded</h2><p>Load a <code>vinted_items.json</code> or <code>scored_items.json</code><br>from the sidebar to begin.</p></div>`;
+            document.getElementById('resultCount').textContent = 'Load a JSON file to get started';
+            updateStats();
+            return;
+        }
+
+        if (!filteredItems.length) {
+            grid.innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div><h2>No results</h2><p>No items match your current filters.</p></div>`;
+        } else {
+            grid.innerHTML = filteredItems.map(item => {
+                const score = item.ai_score != null ? Math.round(item.ai_score) : null;
+                const img = item.image_url || '';
+                const url = item.url || '#';
+                const safeId = String(item.id).replace(/'/g, '');
+                const safeImg = img.replace(/'/g, '');
+                const date = item.scraped_at ? new Date(item.scraped_at).toLocaleDateString() : '';
+
+                return `<div class="item-card">
+                    <div class="card-img-wrap">
+                        <a href="${url}" target="_blank" rel="noopener">
+                            <img class="item-thumb" src="${img}" alt="" loading="lazy" onerror="this.src='${PLACEHOLDER}'">
+                        </a>
+                        ${score != null ? `<div class="score-badge ${scoreClass(score)}">${score}%</div>` : ''}
+                        <div class="card-actions">
+                            <button class="act-btn act-del"   onclick="deleteItem('${safeId}','${safeImg}')" title="Remove">✕</button>
+                            <button class="act-btn act-polish" onclick="flagPolish('${safeId}')" title="Mark as Polish 🇵🇱">🇵🇱</button>
+                        </div>
+                    </div>
+                    <div class="card-info">
+                        <div class="card-price">${item.price || '—'}</div>
+                        <a href="${url}" target="_blank" rel="noopener" class="card-link">
+                            <div class="card-title">${item.title || 'No title'}</div>
+                        </a>
+                        <div class="card-meta">
+                            ${item.size  ? `<span class="meta-tag">${item.size}</span>`  : ''}
+                            ${item.tag   ? `<span class="meta-tag">${item.tag}</span>`   : ''}
+                            ${date       ? `<span class="meta-tag">${date}</span>`        : ''}
+                            ${item.shown ? `<span class="meta-tag meta-shown">seen</span>` : ''}
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        document.getElementById('resultCount').textContent =
+            `${filteredItems.length} of ${allItems.length} items`;
+        updateStats();
+    }
+
+    // ── DELETE ────────────────────────────────────────
+    async function deleteItem(itemId, imageUrl) {
+        const imageName = imageUrl.split('/').pop();
+        try {
+            await fetch('http://127.0.0.1:5000/move_to_negative', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image_name: imageName }),
+            });
+        } catch {
+            console.warn('Feedback server not running — removing locally only.');
+        }
+        allItems = allItems.filter(i => String(i.id) !== String(itemId));
+        applyFilters();
+    }
+
+    // ── POLISH FLAG ───────────────────────────────────
+    let _localPolish = JSON.parse(localStorage.getItem('polishFlagged') || '[]');
+
+    async function flagPolish(itemId) {
+        const item = allItems.find(i => String(i.id) === String(itemId));
+        if (!item) return;
+
+        const token = document.getElementById('apiToken').value.trim();
+        let saved = false;
+
+        if (token) {
+            try {
+                const res = await fetch('http://localhost:8000/api/flag_polish', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify(item),
+                });
+                saved = res.ok;
+                if (saved) document.getElementById('dbStatus').textContent =
+                    `Polish flag saved to backend (${item.title?.slice(0,30)}…)`;
+            } catch {}
+        }
+
+        if (!saved) {
+            if (!_localPolish.find(i => String(i.id) === String(itemId))) {
+                _localPolish.push(item);
+                localStorage.setItem('polishFlagged', JSON.stringify(_localPolish));
+            }
+            _updateExportBtn();
+        }
+
+        allItems = allItems.filter(i => String(i.id) !== String(itemId));
+        applyFilters();
+    }
+
+    function _updateExportBtn() {
+        const btn = document.getElementById('exportPolishBtn');
+        if (btn) btn.textContent = `Export ${_localPolish.length} Polish flags as JSON`;
+        btn && (_localPolish.length > 0 ? btn.removeAttribute('hidden') : btn.setAttribute('hidden', ''));
+    }
+
+    function exportPolishLocal() {
+        if (!_localPolish.length) return;
+        const blob = new Blob([JSON.stringify(_localPolish, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = Object.assign(document.createElement('a'), { href: url, download: 'polish_removed.json' });
+        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    }
+
+    // ── STATS ─────────────────────────────────────────
+    function updateStats() {
+        document.getElementById('sTotal').textContent = allItems.length;
+        document.getElementById('sShown').textContent = filteredItems.length;
+
+        const scored = allItems.filter(i => i.ai_score != null);
+        document.getElementById('sAvgScore').textContent = scored.length
+            ? Math.round(scored.reduce((s, i) => s + i.ai_score, 0) / scored.length) + '%'
+            : '—';
+
+        const prices = allItems.map(i => parsePrice(i.price)).filter(p => p > 0);
+        document.getElementById('sAvgPrice').textContent = prices.length
+            ? (prices.reduce((s, p) => s + p, 0) / prices.length).toFixed(0) + ' ' + getCurrencySymbol()
+            : '—';
+
+        const dates = allItems.map(i => new Date(i.scraped_at)).filter(d => !isNaN(d));
+        document.getElementById('sDate').textContent = dates.length
+            ? new Date(Math.max(...dates)).toLocaleDateString()
+            : '—';
+    }
+
+    // ── UTILS ─────────────────────────────────────────
+    function clearFilters() {
+        document.getElementById('searchInput').value = '';
+        document.getElementById('priceMin').value = '';
+        document.getElementById('priceMax').value = '';
+        document.getElementById('scoreSlider').value = 0;
+        document.getElementById('scoreVal').textContent = 'Any';
+        activeTags.clear();
+        activeSizes.clear();
+        document.querySelectorAll('.chip.active').forEach(c => c.classList.remove('active'));
+        applyFilters();
+    }
+
+    function saveChanges() {
+        if (!allItems.length) { alert('No items to save.'); return; }
+        const blob = new Blob([JSON.stringify(allItems, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = Object.assign(document.createElement('a'), { href: url, download: 'vinted_items.json' });
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a); URL.revokeObjectURL(url);
+    }
+
+    // initial render
+    updateStats();
+</script>
 </body>
 </html>

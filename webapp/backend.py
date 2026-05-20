@@ -1,5 +1,6 @@
 
-from fastapi import FastAPI, HTTPException, Depends, status
+import json
+from fastapi import FastAPI, HTTPException, Depends, status, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -258,6 +259,49 @@ async def export_ratings(token: str = Depends(verify_token)):
 
     conn.close()
     return ratings
+
+@app.get("/api/items/all")
+async def get_all_items(token: str = Depends(verify_token)):
+    """Return all items for the debug viewer - PROTECTED"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        SELECT id, url, title, brand, price, image_url, size, tag, scraped_at, shown, predicted_score
+        FROM items
+        ORDER BY predicted_score DESC NULLS LAST, scraped_at DESC
+    """)
+    rows = c.fetchall()
+    conn.close()
+    return [
+        {
+            "id": r[0], "url": r[1], "title": r[2], "brand": r[3],
+            "price": r[4], "image_url": r[5], "size": r[6], "tag": r[7],
+            "scraped_at": r[8], "shown": bool(r[9]),
+            "predicted_score": r[10],
+            "ai_score": (r[10] * 100) if r[10] is not None else None,
+        }
+        for r in rows
+    ]
+
+POLISH_REMOVED_FILE = os.path.join(os.path.dirname(SCRIPT_DIR), "polish_removed.json")
+
+@app.post("/api/flag_polish")
+async def flag_polish(item: dict = Body(...), token: str = Depends(verify_token)):
+    """Flag an item as Polish — appends to polish_removed.json for blocklist building."""
+    existing: list = []
+    try:
+        with open(POLISH_REMOVED_FILE, encoding="utf-8") as f:
+            existing = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
+    ids = {str(i.get("id")) for i in existing}
+    if str(item.get("id")) not in ids:
+        existing.append(item)
+        with open(POLISH_REMOVED_FILE, "w", encoding="utf-8") as f:
+            json.dump(existing, f, ensure_ascii=False, indent=2)
+
+    return {"status": "saved", "total_flagged": len(existing)}
 
 @app.post("/api/retrain")
 async def trigger_retrain(token: str = Depends(verify_token)):

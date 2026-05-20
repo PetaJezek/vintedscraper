@@ -1,15 +1,18 @@
 #!/bin/bash
+# Usage:
+#   ./scriptSCRAPE.sh          — full run, saves vinted_items.json
+#   ./scriptSCRAPE.sh debug    — dry run, 5 items, no files written
 
-# Start Chrome with remote debugging (Linux equivalent)
-# google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome_debug_profile &
+cd "$(dirname "$0")"
+source .venv/bin/activate
 
-# Run Python scripts
-python vinted_scraper.py
-python db_creator.py
-
-# Open HTML file in default browser (xdg-open is standard for Linux)
-xdg-open vinted_viewer.html
-
-# Call the other scripts
-bash scriptWEB.sh
-bash scriptAI.sh
+if [ "$1" = "debug" ]; then
+    echo "=== DEBUG RUN (dry-run, limit 30) ==="
+    python vinted_scraper.py #--dry-run --limit 30
+    echo ""
+    echo "Check debug_pages/ for saved HTML of items that passed the filter"
+else
+    python vinted_scraper.py
+    python db_creator.py
+    xdg-open vinted_viewer.html
+fi
