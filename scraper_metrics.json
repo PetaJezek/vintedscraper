@@ -1,0 +1,26 @@
+{
+  "total_time": 3540.2101850509644,
+  "successful_items": 1183,
+  "failed_items": 74,
+  "polish_items": 22,
+  "rate_limits": 88,
+  "items_per_minute": 20.049657023112083,
+  "rate_limit_percentage": 7.000795544948289,
+  "avg_page_load_time": 15.63304694890976,
+  "avg_item_check_time": 13.521602220542865,
+  "avg_image_download_time": 0.22458888168367208,
+  "total_wait_time": 1950,
+  "countries_used": {
+    "de": 5,
+    "cz": 2,
+    "ch": 4,
+    "nl": 4,
+    "dk": 1,
+    "be": 2,
+    "sk": 2,
+    "fr": 4,
+    "at": 2,
+    "no": 1
+  },
+  "productive_time": 1590.2101850509644
+}

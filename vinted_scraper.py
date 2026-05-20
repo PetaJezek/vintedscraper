@@ -16,6 +16,7 @@ import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
+from _db import save_items_to_db, init_db
 
 import aiohttp
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout

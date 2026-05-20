@@ -4,9 +4,15 @@
 # Run Python script
 python vinted_scraper.py
 
-python db_creator.py
+python _db.py
 # Open HTML file in default browser
-Start-Process "vinted_viewer.html"
+#Start-Process "vinted_viewer.html"
 
-scriptWEB.ps1
-scriptAI.ps1
+#.\scriptAI.ps1
+
+python clean_sold_items.py
+
+python .\webapp\retrain_model.py
+
+
+.\scriptWEB.ps1
