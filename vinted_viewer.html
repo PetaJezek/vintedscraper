@@ -738,19 +738,62 @@
     }
 
     // ── DELETE ────────────────────────────────────────
-    async function deleteItem(itemId, imageUrl) {
-        const imageName = imageUrl.split('/').pop();
+    async function _doDelete(itemId, imageUrl) {
+        const item = allItems.find(i => String(i.id) === String(itemId));
         try {
-            await fetch('http://127.0.0.1:5000/move_to_negative', {
+            await fetch('http://127.0.0.1:5000/delete_item', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image_name: imageName }),
+                body: JSON.stringify({ id: itemId, image_url: imageUrl }),
             });
         } catch {
-            console.warn('Feedback server not running — removing locally only.');
+            console.warn('feedback_server.py not running — removed from view only.');
         }
         allItems = allItems.filter(i => String(i.id) !== String(itemId));
         applyFilters();
+    }
+
+    async function deleteItem(itemId, imageUrl) {
+        if (localStorage.getItem('skipDeleteConfirm') === 'yes') {
+            await _doDelete(itemId, imageUrl);
+            return;
+        }
+
+        // build confirm dialog
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:9999';
+
+        overlay.innerHTML = `
+          <div style="background:#1e1e2e;border:1px solid #444;border-radius:12px;padding:28px 32px;max-width:360px;width:90%;text-align:center;font-family:inherit">
+            <div style="font-size:1.3em;margin-bottom:10px">🗑 Delete item?</div>
+            <div style="color:#aaa;font-size:.9em;margin-bottom:22px">
+              This removes it from the database and JSON permanently.
+            </div>
+            <div style="display:flex;gap:12px;justify-content:center;margin-bottom:18px">
+              <button id="dlgYes" style="padding:8px 28px;background:#e05252;border:none;border-radius:8px;color:#fff;font-size:1em;cursor:pointer">Yes</button>
+              <button id="dlgNo"  style="padding:8px 28px;background:#333;border:none;border-radius:8px;color:#fff;font-size:1em;cursor:pointer">No</button>
+            </div>
+            <label style="color:#888;font-size:.8em;cursor:pointer;user-select:none">
+              <input type="checkbox" id="dlgSkip" style="margin-right:6px">don't ask again
+            </label>
+          </div>`;
+
+        document.body.appendChild(overlay);
+
+        await new Promise(resolve => {
+            overlay.querySelector('#dlgYes').onclick = async () => {
+                if (overlay.querySelector('#dlgSkip').checked)
+                    localStorage.setItem('skipDeleteConfirm', 'yes');
+                document.body.removeChild(overlay);
+                await _doDelete(itemId, imageUrl);
+                resolve();
+            };
+            overlay.querySelector('#dlgNo').onclick = () => {
+                document.body.removeChild(overlay);
+                resolve();
+            };
+            overlay.onclick = e => { if (e.target === overlay) { document.body.removeChild(overlay); resolve(); } };
+        });
     }
 
     // ── POLISH FLAG ───────────────────────────────────
@@ -763,17 +806,18 @@
         const token = document.getElementById('apiToken').value.trim();
         let saved = false;
 
-        if (token) {
-            try {
-                const res = await fetch('http://localhost:8000/api/flag_polish', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify(item),
-                });
-                saved = res.ok;
-                if (saved) document.getElementById('dbStatus').textContent =
-                    `Polish flag saved to backend (${item.title?.slice(0,30)}…)`;
-            } catch {}
+        try {
+            const res = await fetch('http://localhost:5000/flag_polish', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(item),
+            });
+            saved = res.ok;
+            if (saved) document.getElementById('dbStatus').textContent =
+                `🇵🇱 Removed from JSON + DB (${item.title?.slice(0,30) ?? item.id}…)`;
+        } catch {
+            document.getElementById('dbStatus').textContent =
+                '⚠ feedback_server.py not running — flagged locally only';
         }
 
         if (!saved) {

@@ -11,8 +11,10 @@ Flow:
 import argparse
 import asyncio
 import json
+import random
 import re
 import subprocess
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -41,8 +43,8 @@ USER_AGENT = (
     "Chrome/124.0.0.0 Safari/537.36"
 )
 
-MAX_PAGES_PER_URL = 10                  # catalog pages per search URL
-DEBUG_LIMIT       = 30                  # max items to process (None = unlimited)
+MAX_PAGES_PER_URL = 20                  # catalog pages per search URL
+DEBUG_LIMIT       = 10                  # max items to process (None = unlimited)
 CONCURRENT_ITEMS  = 2                   # parallel item-page workers
 RATE_LIMIT_PAUSE  = 40                  # seconds to sleep on rate-limit
 CATALOG_WAIT_MS   = 3000               # ms to wait after catalog page loads
@@ -54,9 +56,7 @@ IMAGE_SCRAPE_MODE = 'catalog'           # 'catalog' = thumbnail from tile
 # ── Debug / dry-run flags ─────────────────────────────────────────────────────
 DRY_RUN               = False            # set False to write output files
 SAVE_PASSED_HTML      = True           # save HTML for items that pass the filter
-SAVE_FAILED_HTML      = False           # save catalog HTML when no items found
-
-# ── VPN (Mullvad) rotation on rate-limit ─────────────────────────────────────
+SAVE_FAILED_HTML      = False           # save catalog HTML when no items found ── VPN (Mullvad) rotation on rate-limit ─────────────────────────────────────
 VPN_COUNTRIES = ["cz", "de", "at", "sk", "hu", "ch", "nl"]
 
 # ── Search URLs ───────────────────────────────────────────────────────────────
@@ -97,10 +97,24 @@ POLISH_INDICATORS = [
     "🇵🇱",           # flag emoji (some Vinted locales use this)
 ]
 
+_BLOCKLIST_FILE = Path("polish_blocklist.json")
 
-def is_polish(page_text: str) -> tuple[bool, str]:
+
+def _load_polish_indicators() -> list[str]:
+    indicators = list(POLISH_INDICATORS)
+    if _BLOCKLIST_FILE.exists():
+        try:
+            words = json.loads(_BLOCKLIST_FILE.read_text(encoding="utf-8"))
+            indicators.extend(words)
+            _console.print(f"[dim]Loaded {len(words)} words from {_BLOCKLIST_FILE}[/]")
+        except Exception:
+            pass
+    return indicators
+
+
+def is_polish(page_text: str, indicators: list[str] = POLISH_INDICATORS) -> tuple[bool, str]:
     lower = page_text.lower()
-    for indicator in POLISH_INDICATORS:
+    for indicator in indicators:
         if indicator.lower() in lower:
             return True, indicator
     return False, ""
@@ -113,27 +127,114 @@ def is_polish(page_text: str) -> tuple[bool, str]:
 _console = Console()
 
 
+_SAVED_MSGS = [
+    "finding the best drip",
+    "ooh this one's giving main character energy",
+    "yeah okay, this one slaps",
+    "certified fit check passed",
+    "your wardrobe will thank you",
+    "now we're talking",
+    "this is the one",
+    "adding to the drip collection",
+    "páni, to je pecka!",                           # CZ: wow, that's a banger!
+    "to si musíš vzít",                             # CZ: you have to wear this
+    "fashion fades, style is eternal — YSL",        # proverb
+]
+_POLISH_MSGS = [
+    "you wouldn't wear this",
+    "hard pass, moving on",
+    "not today bestie",
+    "the vibes are off",
+    "this ain't it chief",
+    "to bych si nevzal ani zadarmo",                # CZ: I wouldn't take this even for free
+    "to vyzerá ako od babičky",                     # SK: looks like it's from grandma's
+]
+_SEEN_MSGS = [
+    "already seen this one, next",
+    "been there, scrolled that",
+    "old news, keeping it moving",
+    "co bylo, bylo",                                # CZ: what's done is done
+]
+_SKIPPED_MSGS = [
+    "vinted is being shy",
+    "connection issues, skipping",
+    "clothes make the man — but this page won't load",
+]
+_CATALOG_MSGS = [
+    "browsing the catalog",
+    "scanning the racks",
+    "flipping through the fits",
+    "window shopping",
+    "šetříme vám čas",                             # CZ: saving you time
+]
+
+_MSG_MIN_SECS = 4.0
+
+
 @dataclass
 class ScraperState:
     section: str = ""
     page_num: int = 0
-    items_total: int = 0
-    items_checked: int = 0
+    section_limit: int | None = None  # save limit per URL
+    limit: int | None = None          # overall limit = section_limit * num_urls
+    # global totals (accumulate across all sections)
     saved: int = 0
     polish: int = 0
     skipped: int = 0
+    already_seen: int = 0
+    # current-section totals (reset per section)
+    section_total: int = 0
+    section_saved: int = 0
+    section_polish: int = 0
+    section_skipped: int = 0
+    section_seen: int = 0
+    section_checked: int = 0
     polish_urls: list = field(default_factory=list)
     status_msg: str = ""
+    fun_message: str = _CATALOG_MSGS[0]
+    message_set_at: float = field(default_factory=time.time)
+
+
+def _set_message(state: ScraperState, msg: str) -> None:
+    now = time.time()
+    if now - state.message_set_at >= _MSG_MIN_SECS:
+        state.fun_message    = msg
+        state.message_set_at = now
+
+
+_SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+
+def _spinner() -> str:
+    return _SPINNER_FRAMES[int(time.time() * 8) % len(_SPINNER_FRAMES)]
+
+
+def _dots() -> str:
+    n = int(time.time() * 2) % 3 + 1
+    return "·" * n + " " * (3 - n)
+
+
+def _bounce_bar(width: int = 34) -> str:
+    """Sweeping lit blob for no-limit / indeterminate mode."""
+    p = (time.time() % 2.5) / 2.5 * 2   # 0 → 2
+    if p > 1:
+        p = 2 - p                         # bounce back 1 → 0
+    center = int(p * (width - 1))
+    row = []
+    for i in range(width):
+        d = abs(i - center)
+        row.append("█" if d == 0 else "▓" if d <= 2 else "▒" if d <= 4 else "░")
+    return "".join(row)
+
+
+def _bar(done: int, total: int, width: int = 34) -> tuple[str, int]:
+    total  = max(total, 1)
+    filled = min(int(width * done / total), width)
+    pct    = min(int(100 * done / total), 100)
+    return "█" * filled + "░" * (width - filled), pct
 
 
 def _build_panel(state: ScraperState) -> Panel:
-    BAR_WIDTH = 36
-    done  = state.items_checked
-    total = max(state.items_total, 1)
-    filled = int(BAR_WIDTH * done / total)
-    bar    = "█" * filled + "░" * (BAR_WIDTH - filled)
-    pct    = int(100 * done / total)
-
     t = Text()
     t.append("\n")
     t.append(f"  {state.section}", style="bold cyan")
@@ -141,28 +242,73 @@ def _build_panel(state: ScraperState) -> Panel:
         t.append(f"  ·  fetching catalog page {state.page_num}", style="dim")
     t.append("\n\n")
 
-    t.append(f"  {bar}  ", style="green")
-    t.append(f"{done}", style="bold white")
-    t.append(f" / {state.items_total}  ")
-    t.append(f"({pct}%)", style="dim")
-    t.append("\n\n")
+    if state.section_limit:
+        # section bar — section_saved / section_limit (resets each URL)
+        s_bar, s_pct = _bar(state.section_saved, state.section_limit)
+        t.append(f"  {s_bar}  ", style="cyan")
+        t.append(f"({s_pct}%)", style="dim")
+        t.append("  this section\n")
+
+        # overall bar — total saved / overall limit (all URLs combined)
+        g_bar, g_pct = _bar(state.saved, state.limit or 1)
+        t.append(f"  {g_bar}  ", style="green")
+        t.append(f"({g_pct}%)", style="dim")
+        t.append("  overall\n\n")
+    else:
+        # no limit — bouncing sweep + running counts
+        t.append(f"  {_bounce_bar()}  ", style="cyan")
+        t.append(f"✓ {state.section_saved} this section", style="dim")
+        t.append("  |  ", style="dim")
+        t.append(f"✓ {state.saved} overall\n\n", style="green")
 
     t.append("  ✓ saved  ", style="dim")
     t.append(f"{state.saved:<5d}", style="bold green")
     t.append("  ✗ polish  ", style="dim")
     t.append(f"{state.polish:<5d}", style="bold red")
     t.append("  ⚠ skipped  ", style="dim")
-    t.append(f"{state.skipped}", style="bold yellow")
+    t.append(f"{state.skipped:<5d}", style="bold yellow")
+    t.append("  ↩ seen  ", style="dim")
+    t.append(f"{state.already_seen}", style="bold blue")
     t.append("\n")
 
+    spin = _spinner()
+    dots = _dots()
     if state.status_msg:
-        t.append(f"\n  {state.status_msg}\n", style="dim italic")
+        t.append(f"\n  {spin}  {state.status_msg}{dots}\n", style="dim italic")
+    elif state.fun_message:
+        base = state.fun_message.rstrip(". ")
+        t.append(f"\n  {spin}  {base}{dots}\n", style="dim italic")
 
     return Panel(
         t,
         title="[bold blue] VINTED SCRAPER [/]",
         border_style="blue",
         padding=(0, 1),
+    )
+
+
+class _LivePanel:
+    """Renderable that rebuilds itself on every Live tick so animations run continuously."""
+    def __init__(self, state: ScraperState) -> None:
+        self._state = state
+
+    def __rich__(self):
+        return _build_panel(self._state)
+
+
+def _section_summary(state: ScraperState) -> str:
+    saved   = state.section_saved
+    polish  = state.section_polish
+    skipped = state.section_skipped
+    seen    = state.section_seen
+    total   = state.section_total
+    return (
+        f"[bold cyan]✓ {state.section}[/]  [dim]—[/]  "
+        f"[dim]{total} items[/]  "
+        f"[green]✓ {saved} saved[/]  "
+        f"[red]✗ {polish} polish[/]  "
+        f"[yellow]⚠ {skipped} skipped[/]  "
+        f"[blue]↩ {seen} seen[/]"
     )
 
 
@@ -427,11 +573,17 @@ async def scrape_item(
     session: aiohttp.ClientSession,
     url_tag: str,
     state: ScraperState,
+    polish_indicators: list[str] = POLISH_INDICATORS,
 ) -> dict | None:
     url     = catalog_item["url"]
     item_id = extract_item_id(url)
 
     if not item_id or item_id in seen_ids:
+        state.already_seen   += 1
+        state.section_seen   += 1
+        
+        state.section_checked += 1
+        _set_message(state, random.choice(_SEEN_MSGS))
         return None
 
     page = await context.new_page()
@@ -440,8 +592,11 @@ async def scrape_item(
             await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
             await page.wait_for_timeout(ITEM_WAIT_MS)
         except PlaywrightTimeout:
-            state.skipped += 1
-            state.items_checked += 1
+            state.skipped         += 1
+            state.section_skipped += 1
+            
+            state.section_checked += 1
+            _set_message(state, random.choice(_SKIPPED_MSGS))
             return None
 
         page_text = await page.evaluate("() => document.body.innerText")
@@ -459,25 +614,34 @@ async def scrape_item(
             await page.wait_for_timeout(ITEM_WAIT_MS)
             page_text = await page.evaluate("() => document.body.innerText")
             if any(s in page_text.lower() for s in rate_signals):
-                state.skipped += 1
-                state.items_checked += 1
+                state.skipped         += 1
+                state.section_skipped += 1
+                
+                state.section_checked += 1
+                _set_message(state, random.choice(_SKIPPED_MSGS))
                 return None
 
         # ── Page-gone check ────────────────────────────────────────────────
         gone_signals = ["page does not exist", "stránka neexistuje", "nenalezeno"]
         if any(s in page_text.lower() for s in gone_signals):
             seen_ids.add(item_id)
-            state.skipped += 1
-            state.items_checked += 1
+            state.skipped         += 1
+            state.section_skipped += 1
+            
+            state.section_checked += 1
+            _set_message(state, random.choice(_SKIPPED_MSGS))
             return None
 
         # ── Polish filter ──────────────────────────────────────────────────
-        polish, _ = is_polish(page_text)
+        polish, _ = is_polish(page_text, polish_indicators)
         if polish:
-            state.polish += 1
+            state.polish         += 1
+            state.section_polish += 1
             state.polish_urls.append(url)
             seen_ids.add(item_id)
-            state.items_checked += 1
+            
+            state.section_checked += 1
+            _set_message(state, random.choice(_POLISH_MSGS))
             return None
 
         if SAVE_PASSED_HTML:
@@ -546,13 +710,19 @@ async def scrape_item(
             data["image_url"] = local_path or img_url
 
         seen_ids.add(item_id)
-        state.saved += 1
-        state.items_checked += 1
+        state.saved          += 1
+        state.section_saved  += 1
+        
+        state.section_checked += 1
+        _set_message(state, random.choice(_SAVED_MSGS))
         return data
 
     except Exception:
-        state.skipped += 1
-        state.items_checked += 1
+        state.skipped         += 1
+        state.section_skipped += 1
+        
+        state.section_checked += 1
+        _set_message(state, random.choice(_SKIPPED_MSGS))
         return None
     finally:
         await page.close()
@@ -582,64 +752,76 @@ def save_items(new_items: list[dict]) -> int:
 async def main(dry_run: bool = False, limit: int | None = None, relogin: bool = False) -> None:
     Path(IMAGES_FOLDER).mkdir(parents=True, exist_ok=True)
 
-    effective_limit = limit if limit is not None else DEBUG_LIMIT
-    effective_dry   = dry_run or DRY_RUN
+    polish_indicators = _load_polish_indicators()
+    section_limit = limit if limit is not None else DEBUG_LIMIT
+    overall_limit = section_limit * len(SCRAPE_URLS) if section_limit else None
+    effective_dry = dry_run or DRY_RUN
 
     seen_ids      = load_seen_ids()
-    state         = ScraperState()
+    state         = ScraperState(section_limit=section_limit, limit=overall_limit)
     all_new_items: list[dict] = []
     total_catalog = 0
 
     async with async_playwright() as pw:
         browser, context = await ensure_session(pw, relogin=relogin)
 
-        with Live(_build_panel(state), refresh_per_second=10, console=_console) as live:
+        live_panel = _LivePanel(state)
+        with Live(live_panel, refresh_per_second=20, console=_console) as live:
             async with aiohttp.ClientSession() as http:
                 catalog_page = await context.new_page()
 
                 for config in SCRAPE_URLS:
+                    if overall_limit and state.saved >= overall_limit:
+                        break
+
                     url_template = config["url"]
                     tag          = config["tag"]
 
-                    state.section       = tag
-                    state.page_num      = 0
-                    state.items_total   = 0
-                    state.items_checked = 0
-                    live.update(_build_panel(state))
-
-                    catalog_items: list[dict] = []
-                    for page_num in range(1, MAX_PAGES_PER_URL + 1):
-                        page_items = await scrape_catalog_page(
-                            catalog_page, url_template, page_num, state
-                        )
-                        live.update(_build_panel(state))
-                        catalog_items.extend(page_items)
-                        if not page_items:
-                            break
-                        if effective_limit and len(catalog_items) >= effective_limit:
-                            catalog_items = catalog_items[:effective_limit]
-                            break
-
-                    total_catalog     += len(catalog_items)
-                    state.items_total  = len(catalog_items)
-                    live.update(_build_panel(state))
+                    # reset section-level counters
+                    state.section         = tag
+                    state.page_num        = 0
+                    state.section_total   = 0
+                    state.section_checked = 0
+                    state.section_saved   = 0
+                    state.section_polish  = 0
+                    state.section_skipped = 0
+                    state.section_seen    = 0
+                    state.fun_message     = random.choice(_CATALOG_MSGS)
+                    state.message_set_at  = 0  # force first message to show immediately
 
                     semaphore = asyncio.Semaphore(CONCURRENT_ITEMS)
 
-                    async def process(
-                        ci: dict,
-                        _tag: str = tag,
-                        _state: ScraperState = state,
-                        _live: Live = live,
-                    ) -> dict | None:
-                        async with semaphore:
-                            result = await scrape_item(context, ci, seen_ids, http, _tag, _state)
-                            _live.update(_build_panel(_state))
-                            return result
+                    # fetch one catalog page → process its items → repeat until section limit hit
+                    for page_num in range(1, MAX_PAGES_PER_URL + 1):
+                        if section_limit and state.section_saved >= section_limit:
+                            break
 
-                    results = await asyncio.gather(*[process(ci) for ci in catalog_items])
-                    new_items = [r for r in results if r is not None]
-                    all_new_items.extend(new_items)
+                        page_items = await scrape_catalog_page(
+                            catalog_page, url_template, page_num, state
+                        )
+                        if not page_items:
+                            break
+
+                        state.section_total += len(page_items)
+                        total_catalog       += len(page_items)
+
+                        async def process(
+                            ci: dict,
+                            _tag: str = tag,
+                            _state: ScraperState = state,
+                            _slimit: int | None = section_limit,
+                            _pi: list[str] = polish_indicators,
+                        ) -> dict | None:
+                            async with semaphore:
+                                if _slimit and _state.section_saved >= _slimit:
+                                    return None
+                                return await scrape_item(context, ci, seen_ids, http, _tag, _state, _pi)
+
+                        results = await asyncio.gather(*[process(ci) for ci in page_items])
+                        all_new_items.extend(r for r in results if r is not None)
+
+                    # print frozen section summary above the live panel
+                    live.console.print(_section_summary(state))
 
         await browser.close()
 
@@ -660,6 +842,7 @@ async def main(dry_run: bool = False, limit: int | None = None, relogin: bool = 
     _console.print(f"  [green]✓ Saved      {state.saved}[/]")
     _console.print(f"  [red]✗ Polish     {state.polish}[/]")
     _console.print(f"  [yellow]⚠ Skipped    {state.skipped}[/]")
+    _console.print(f"  [blue]↩ Already seen {state.already_seen}[/]")
     _console.print(f"  {outcome}")
 
     if state.polish_urls:

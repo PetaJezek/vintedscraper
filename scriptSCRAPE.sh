@@ -14,5 +14,9 @@ if [ "$1" = "debug" ]; then
 else
     python vinted_scraper.py
     python db_creator.py
-    xdg-open vinted_viewer.html
+    python feedback_server.py &
+    FEEDBACK_PID=$!
+    echo "feedback_server running (pid $FEEDBACK_PID) — Ctrl+C to stop"
+    firefox vinted_viewer.html &
+    wait $FEEDBACK_PID
 fi

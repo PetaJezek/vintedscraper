@@ -117,16 +117,70 @@ Categories are keyword-matched from item text in `style_utils.py:CATEGORY_KEYWOR
 - `db_creator.py` fixed to use proper upsert (`ON CONFLICT DO UPDATE`) so re-importing never resets `shown` or `predicted_score`.
 - `vinted_viewer.html` fully overhauled: dark sidebar layout, tag/size chip filters, price range, AI score slider, lazy-loaded card grid with colour-coded score badges, drag-and-drop file loading.
 
-### Next up: main webapp overhaul (`webapp/`)
+### Settled architecture decisions (2026-05-21)
 
-The React SPA needs to be split into three distinct modes:
+- **No App Store** — PWA only. Friends tap "Add to Home Screen" on iPhone/Android, looks and works like a native app, free forever.
+- **Local network** — each person runs the backend on their own computer (needs to be on to use the app anyway for GPU). Phone connects to computer via local WiFi.
+- **Updates are automatic** — `build/` folder is committed to git. Script does `git pull` on startup → latest webapp served immediately. Friends never touch Node.js or npm.
+- **QR code on script start** — `scriptWEB.sh` prints a QR code with the local IP. Scan → open → Add to Home Screen → done. One-time setup per person.
+- **No Tailscale, no ngrok subscription** — local WiFi is enough since the computer needs to be on anyway.
+- **Tech stack** — Vite + React, Framer Motion for swipe physics, React Router for screens, existing FastAPI backend untouched.
 
-1. **Training mode** — show unscored items one at a time (or in a grid), let the user like/dislike to build up a labelled dataset in the `ratings` table. This is what the current swipe UI does but should be clearly labelled as "building training data".
+### Next up: Tinder-style swipe webapp (2026-05-21)
 
-2. **Testing / review mode** — after running `ai_style_scorer.py`, show scored items sorted by score so the user can verify the model is picking the right things. Should allow filtering by score threshold and category. Useful for sanity-checking before a full swipe session.
+Replace the existing React SPA with a sleek mobile-first swipe app. Design goal: replace `vinted_viewer.html` for day-to-day use, feel native enough to eventually ship as a mobile app.
 
-3. **Swipe / recommendation mode** — the polished end-use flow: show AI-recommended items (high `predicted_score`) that haven't been seen yet, ordered by score descending. Swipe or click like/dislike. This is the main consumer-facing mode.
+---
 
-**Suggested approach:** add a mode switcher (top nav or sidebar tabs) to `webapp/` React app. Each mode maps to existing API endpoints; no new backend endpoints should be needed. Backend already orders by `predicted_score DESC` in `/api/next_item`.
+#### Swipe gestures
+- **Right** → like (rating 1, store in `ratings` table)
+- **Left** → dislike (rating 0)
+- **Down** → super-like (rating 2 or weighted 1, visually distinct)
+- **Up** → undo — go back to previous item
+- Card should physically follow the finger/mouse with rotation and colour tint (green right, red left, gold down)
 
-**Backend note:** `webapp/backend.py` currently has a stub `retrain` endpoint. Eventually it should shell out to `train_style_model.py` with the accumulated `ratings` as training data, then re-run `ai_style_scorer.py` to update `predicted_score` for all items.
+#### Queue modes (switchable from UI)
+- **Random** — for training: pull unrated items in random order
+- **Best first** — pull by `predicted_score DESC` (default recommendation mode)
+- **Unseen only** — skip anything with a rating already
+- **Similar to likes** — future: use embeddings to surface items close to positively-rated ones
+
+#### Comparison / ranking mode ("which is better")
+- Show N items at once (configurable, default 2–4)
+- User picks the best one; runner-up gets a soft-negative signal
+- Implements pairwise ELO ranking: each comparison updates relative scores
+- Useful for calibrating the model when you can't tell if something is a hard like or not
+- Results feed into `ratings` table as weighted pairs
+
+#### Liked items gallery
+- Full scrollable grid of everything rated positive/super-like
+- Each card has a **"Open in Vinted"** button: `https://www.vinted.cz/items/{id}` — opens the Vinted app on mobile if installed, browser fallback
+- Filter by category, score, date liked
+- Tap to expand full detail
+
+#### Actions / pipeline controls (accessible from UI, no terminal needed)
+- **Retrain** button → POST `/api/retrain` → runs `train_style_model.py` on accumulated ratings in background, shows progress
+- **Rescore** button → POST `/api/rescore` → runs `ai_style_scorer.py` to update `predicted_score` for all items
+- **Build Polish blocklist** button → POST `/api/build_blocklist` → runs `build_polish_blocklist.py`
+- All three show a spinner + success/error toast — no need to open a terminal
+
+#### Profile / stats page
+- Total items in DB, rated, unrated, liked, disliked, super-liked
+- Model info: last trained, training set size, classifier file age
+- Score distribution histogram
+- Top categories in liked items
+- Polish filter stats: items blocked this session, blocklist word count
+- Recent activity feed
+
+#### UI design principles
+- Mobile-first, works on phone browser today (progressive enhancement toward app)
+- Dark theme, glassmorphism cards, smooth spring physics on swipe
+- No visible buttons during swiping — gesture-only with subtle icon hints
+- Bottom nav: Swipe | Compare | Liked | Profile
+- Haptic feedback via `navigator.vibrate()` on like/dislike
+
+#### Tech approach
+- Overhaul `webapp/` React SPA (don't build a new standalone HTML — keep the FastAPI backend)
+- New backend endpoints needed: `/api/rescore`, `/api/build_blocklist`, `/api/ratings` (GET liked items), `/api/undo`
+- `/api/next_item` needs a `?mode=random|best|unseen` query param
+- Keep `feedback_server.py` (port 5000) for local file ops; `webapp/backend.py` (port 8000) for the app API

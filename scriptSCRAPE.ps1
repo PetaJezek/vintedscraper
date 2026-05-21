@@ -8,6 +8,9 @@ python _db.py
 # Open HTML file in default browser
 #Start-Process "vinted_viewer.html"
 
+$feedbackJob = Start-Process python -ArgumentList "feedback_server.py" -PassThru
+Write-Host "feedback_server running (pid $($feedbackJob.Id)) — close this window to stop"
+
 #.\scriptAI.ps1
 
 python clean_sold_items.py
