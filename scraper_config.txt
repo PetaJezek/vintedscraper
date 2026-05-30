@@ -1,0 +1,76 @@
+# ════════════════════════════════════════════════════════════════════════════
+#  VINTED SCRAPER — CONFIG FILE
+#  Tento soubor / tento súbor / this file is the only thing you need to edit.
+# ════════════════════════════════════════════════════════════════════════════
+
+
+# ── POLISH FILTER ────────────────────────────────────────────────────────────
+#
+#  EN: Set to "yes" to skip items from Polish sellers.
+#      Set to "no" to include them (default — many good items come from Poland).
+#
+#  CZ: Nastav "yes" pro přeskočení zboží od polských prodejců.
+#      Nastav "no" pro jejich zobrazení (výchozí — spousta dobrého zboží pochází z Polska).
+#
+#  SK: Nastav "yes" pre preskočenie tovaru od poľských predajcov.
+#      Nastav "no" pre ich zobrazenie (predvolené — veľa dobrého tovaru pochádza z Poľska).
+#
+filter_polish = no
+
+
+# ── MAX PAGES PER URL ────────────────────────────────────────────────────────
+#
+#  EN: How many catalog pages to fetch per search URL.
+#      More pages = more items found, but takes longer.
+#      Recommended: 20. Set to 5 for a quick test run.
+#
+#  CZ: Kolik stránek katalogu projít pro každou URL.
+#      Více stránek = více nalezených položek, ale trvá déle.
+#      Doporučeno: 20. Pro rychlý test nastav 5.
+#
+#  SK: Koľko stránok katalógu prejsť pre každú URL.
+#      Viac stránok = viac nájdených položiek, ale trvá dlhšie.
+#      Odporúčané: 20. Pre rýchly test nastav 5.
+#
+max_pages = 20
+
+
+# ── SEARCH URLS ──────────────────────────────────────────────────────────────
+#
+#  EN: How to get a URL:
+#       1. Open vinted.cz in your browser
+#       2. Use the search bar and set filters:
+#            category, size, price range, brand, condition — whatever you want
+#       3. Copy the full URL from the address bar
+#       4. REMOVE these parts if present (they expire and break scraping):
+#            search_id=...    time=...    session_id=...
+#       5. Paste the cleaned URL below, one per line
+#       6. Optionally add  # my label  at the end to name it
+#
+#  CZ: Jak získat URL:
+#       1. Otevři vinted.cz v prohlížeči
+#       2. Použij vyhledávání a nastav filtry:
+#            kategorie, velikost, rozsah cen, značka, stav — co chceš
+#       3. Zkopíruj celou URL z adresního řádku
+#       4. ODSTRAŇ tyto části, pokud jsou přítomny (expirují a rozbijí scraping):
+#            search_id=...    time=...    session_id=...
+#       5. Vlož vyčištěnou URL níže, jedna na řádek
+#       6. Volitelně přidej  # můj popis  na konec pro pojmenování
+#
+#  SK: Ako získať URL:
+#       1. Otvor vinted.cz v prehliadači
+#       2. Použi vyhľadávanie a nastav filtre:
+#            kategória, veľkosť, rozsah cien, značka, stav — čo chceš
+#       3. Skopíruj celú URL z adresného riadku
+#       4. ODSTRÁŇ tieto časti, ak sú prítomné (expirujú a rozrazia scraping):
+#            search_id=...    time=...    session_id=...
+#       5. Vlož vyčistenú URL nižšie, jednu na riadok
+#       6. Voliteľne pridaj  # môj popis  na koniec pre pomenovanie
+#
+#  ── Example / Príklad / Příklad ──────────────────────────────────────────
+#  https://www.vinted.cz/catalog?size_ids[]=208&catalog[]=4  # XL jackets
+#  https://www.vinted.cz/catalog?brand_ids[]=14&size_ids[]=210  # Carhartt XL
+#  ─────────────────────────────────────────────────────────────────────────
+
+https://www.vinted.cz/catalog?size_ids[]=210&size_ids[]=211  # XL-XXL all categories
+https://www.vinted.cz/catalog?catalog[]=76  # T-shirts

@@ -59,12 +59,7 @@ SAVE_PASSED_HTML      = True           # save HTML for items that pass the filte
 SAVE_FAILED_HTML      = False           # save catalog HTML when no items found ── VPN (Mullvad) rotation on rate-limit ─────────────────────────────────────
 VPN_COUNTRIES = ["cz", "de", "at", "sk", "hu", "ch", "nl"]
 
-# ── Search URLs ───────────────────────────────────────────────────────────────
-# How to build a URL:
-#   1. Open vinted.cz, set your filters (category, size, price, etc.)
-#   2. Copy the URL from the address bar
-#   3. REMOVE search_id=… and time=… — they are session-specific and expire
-#   4. Add &page={page} at the end
+# ── Search URLs (fallback — edit scraper_config.txt instead) ─────────────────
 SCRAPE_URLS = [
     {
         "url": (
@@ -83,6 +78,47 @@ SCRAPE_URLS = [
         "tag": "T-shirts",
     },
 ]
+
+FILTER_POLISH = False   # overridden by scraper_config.txt
+
+
+def _load_scraper_config() -> None:
+    """Read scraper_config.txt and override SCRAPE_URLS, MAX_PAGES_PER_URL, FILTER_POLISH."""
+    global SCRAPE_URLS, MAX_PAGES_PER_URL, FILTER_POLISH
+    config_path = Path("scraper_config.txt")
+    if not config_path.exists():
+        return
+
+    urls: list[dict] = []
+    for raw in config_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        if "=" in line and not line.startswith("http"):
+            key, _, val = line.partition("=")
+            key, val = key.strip().lower(), val.strip().lower()
+            if key == "filter_polish":
+                FILTER_POLISH = val in ("yes", "true", "1")
+            elif key == "max_pages":
+                try:
+                    MAX_PAGES_PER_URL = int(val)
+                except ValueError:
+                    pass
+
+        elif line.startswith("http"):
+            url_part = line.split("#")[0].strip()
+            tag      = line.split("#")[1].strip() if "#" in line else url_part
+            if "{page}" not in url_part:
+                sep = "&" if "?" in url_part else "?"
+                url_part += f"{sep}page={{page}}"
+            urls.append({"url": url_part, "tag": tag})
+
+    if urls:
+        SCRAPE_URLS = urls
+
+
+_load_scraper_config()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # POLISH FILTER
@@ -632,17 +668,17 @@ async def scrape_item(
             _set_message(state, random.choice(_SKIPPED_MSGS))
             return None
 
-        # ── Polish filter ──────────────────────────────────────────────────
-        polish, _ = is_polish(page_text, polish_indicators)
-        if polish:
-            state.polish         += 1
-            state.section_polish += 1
-            state.polish_urls.append(url)
-            seen_ids.add(item_id)
-            
-            state.section_checked += 1
-            _set_message(state, random.choice(_POLISH_MSGS))
-            return None
+        # ── Polish filter (only active when filter_polish = yes in scraper_config.txt) ──
+        if FILTER_POLISH:
+            polish, _ = is_polish(page_text, polish_indicators)
+            if polish:
+                state.polish         += 1
+                state.section_polish += 1
+                state.polish_urls.append(url)
+                seen_ids.add(item_id)
+                state.section_checked += 1
+                _set_message(state, random.choice(_POLISH_MSGS))
+                return None
 
         if SAVE_PASSED_HTML:
             save_debug_html(f"passed_{item_id}.html", await page.content())
