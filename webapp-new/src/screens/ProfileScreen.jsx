@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { fetchStats, triggerRetrain, triggerRescore, triggerBuildBlocklist, triggerCheckSold } from '../api/client';
+import { fetchStats, triggerRetrain, triggerRescore, triggerScoreMlp, triggerBuildBlocklist, triggerCheckSold } from '../api/client';
 import { useToast } from '../components/Toast';
 
 export default function ProfileScreen() {
@@ -21,6 +21,7 @@ export default function ProfileScreen() {
     try {
       if (action === 'retrain') await triggerRetrain();
       else if (action === 'rescore') await triggerRescore();
+      else if (action === 'score_mlp') await triggerScoreMlp();
       else if (action === 'blocklist') await triggerBuildBlocklist();
       else if (action === 'sold') await triggerCheckSold();
       toast(`${label} started!`, 'success');
@@ -42,10 +43,11 @@ export default function ProfileScreen() {
   ];
 
   const actions = [
-    { id: 'retrain', label: 'Retrain model', desc: 'Train on your ratings', icon: '🧠', color: '#7c6cf8' },
-    { id: 'rescore', label: 'Rescore items', desc: 'Re-rank with new model', icon: '🔄', color: '#22c55e' },
-    { id: 'sold', label: 'Check sold items', desc: 'Mark unavailable items', icon: '🏷️', color: '#ef4444' },
-    { id: 'blocklist', label: 'Build blocklist', desc: 'Update Polish filter', icon: '🚫', color: '#f59e0b' },
+    { id: 'score_mlp', label: 'Score with MLP', desc: 'Re-rank using your trained model', icon: '🤖', color: '#7c6cf8' },
+    { id: 'retrain',   label: 'Retrain model',  desc: 'Train on accumulated ratings',  icon: '🧠', color: '#9b8fff' },
+    { id: 'rescore',   label: 'Rescore (legacy)', desc: 'Similarity-based fallback',   icon: '🔄', color: '#22c55e' },
+    { id: 'sold',      label: 'Check sold',      desc: 'Mark unavailable items',        icon: '🏷️', color: '#ef4444' },
+    { id: 'blocklist', label: 'Build blocklist', desc: 'Update Polish filter',          icon: '🚫', color: '#f59e0b' },
   ];
 
   return (

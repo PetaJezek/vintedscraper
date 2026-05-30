@@ -4,6 +4,7 @@ import getpass
 import json
 import os
 import subprocess
+import sys
 from fastapi import FastAPI, HTTPException, Depends, status, Body, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -317,6 +318,17 @@ async def trigger_rescore(background_tasks: BackgroundTasks, token: str = Depend
     background_tasks.add_task(_rescore)
     return {"status": "rescore_started"}
 
+@app.post("/api/score_mlp")
+async def trigger_score_mlp(background_tasks: BackgroundTasks, token: str = Depends(verify_token)):
+    mlp_path = os.path.join(ROOT_DIR, "style_mlp.pt")
+    emb_path = os.path.join(ROOT_DIR, "embeddings.npz")
+    if not os.path.exists(mlp_path):
+        raise HTTPException(status_code=400, detail="style_mlp.pt not found — train the model first")
+    if not os.path.exists(emb_path):
+        raise HTTPException(status_code=400, detail="embeddings.npz not found — run compute_embeddings.py first")
+    background_tasks.add_task(_score_mlp)
+    return {"status": "mlp_scoring_started"}
+
 @app.post("/api/build_blocklist")
 async def trigger_build_blocklist(background_tasks: BackgroundTasks, token: str = Depends(verify_token)):
     background_tasks.add_task(_build_blocklist)
@@ -336,9 +348,10 @@ def _retrain():
         print(f"Retrain error: {e}")
 
 def _rescore():
+    # Legacy similarity scorer — kept as fallback
     try:
         result = subprocess.run(
-            ["python", os.path.join(ROOT_DIR, "ai_style_scorer.py"),
+            [sys.executable, os.path.join(ROOT_DIR, "ai_style_scorer.py"),
              "--scraped-items", os.path.join(ROOT_DIR, "vinted_items.json"),
              "--output", os.path.join(ROOT_DIR, "scored_items.json")],
             cwd=ROOT_DIR, capture_output=True, text=True
@@ -348,6 +361,18 @@ def _rescore():
             print(f"Rescore error: {result.stderr}")
     except Exception as e:
         print(f"Rescore error: {e}")
+
+def _score_mlp():
+    try:
+        result = subprocess.run(
+            [sys.executable, os.path.join(ROOT_DIR, "score_with_mlp.py")],
+            cwd=ROOT_DIR, capture_output=True, text=True
+        )
+        print(result.stdout)
+        if result.returncode != 0:
+            print(f"MLP scoring error: {result.stderr}")
+    except Exception as e:
+        print(f"MLP scoring error: {e}")
 
 def _build_blocklist():
     try:
