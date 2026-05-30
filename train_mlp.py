@@ -43,6 +43,18 @@ EMBEDDINGS_FILE = BASE_DIR / 'embeddings.npz'
 OUTPUT_FILE     = BASE_DIR / 'style_mlp.pt'
 
 
+# Category order must stay fixed — it defines the one-hot encoding
+CATEGORIES = ['pants', 'tshirt', 'jumper', 'outerwear', 'dress',
+               'shorts', 'shoes', 'accessory', 'suit', 'unknown']
+CAT_INDEX  = {c: i for i, c in enumerate(CATEGORIES)}
+
+
+def category_onehot(tag: str | None) -> torch.Tensor:
+    vec = torch.zeros(len(CATEGORIES))
+    vec[CAT_INDEX.get(tag or 'unknown', CAT_INDEX['unknown'])] = 1.0
+    return vec
+
+
 def load_ratings() -> dict[str, int]:
     conn = sqlite3.connect(DB_PATH)
     rows = conn.execute("SELECT item_id, rating FROM ratings").fetchall()
@@ -50,8 +62,17 @@ def load_ratings() -> dict[str, int]:
     return {str(item_id): rating for item_id, rating in rows}
 
 
+def load_tags() -> dict[str, str]:
+    """item_id → category tag from the DB."""
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute("SELECT id, tag FROM items").fetchall()
+    conn.close()
+    return {str(item_id): (tag or 'unknown') for item_id, tag in rows}
+
+
 def build_dataset(alpha: float):
     ratings = load_ratings()
+    tags    = load_tags()
 
     counts = {r: sum(1 for v in ratings.values() if v == r) for r in TARGETS}
     print(f"Ratings in DB:  dislike={counts[0]}  like={counts[1]}  superlike={counts[2]}")
@@ -68,7 +89,8 @@ def build_dataset(alpha: float):
     X, y = [], []
     for i, item_id in enumerate(emb_ids):
         if item_id in ratings:
-            X.append(combined[i])
+            cat_vec = category_onehot(tags.get(item_id))
+            X.append(torch.cat([combined[i], cat_vec]))   # 1792 + 10 = 1802
             y.append(TARGETS[ratings[item_id]])
 
     missing = sum(1 for iid in ratings if iid not in set(emb_ids))
@@ -80,7 +102,7 @@ def build_dataset(alpha: float):
 
     X = torch.stack(X)
     y = torch.tensor(y, dtype=torch.float32)
-    print(f"Dataset:  {len(X)} items  |  embedding dim: {X.shape[1]}")
+    print(f"Dataset:  {len(X)} items  |  embedding dim: {X.shape[1]}  (1792 visual + 10 category)")
     return X, y
 
 

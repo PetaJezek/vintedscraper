@@ -11,7 +11,7 @@ import torch.nn as nn
 
 
 class StyleMLP(nn.Module):
-    def __init__(self, input_dim=1792, hidden_dims=(512, 128), dropout=0.3):
+    def __init__(self, input_dim=1802, hidden_dims=(256, 64), dropout=0.3):
         super().__init__()
         layers = []
         prev = input_dim

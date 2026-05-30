@@ -22,6 +22,23 @@ from mlp_model import StyleMLP  # same class you use in training
 
 BASE_DIR = Path(__file__).resolve().parent
 
+CATEGORIES = ['pants', 'tshirt', 'jumper', 'outerwear', 'dress',
+               'shorts', 'shoes', 'accessory', 'suit', 'unknown']
+CAT_INDEX  = {c: i for i, c in enumerate(CATEGORIES)}
+
+
+def category_onehot(tag: str | None) -> torch.Tensor:
+    vec = torch.zeros(len(CATEGORIES))
+    vec[CAT_INDEX.get(tag or 'unknown', CAT_INDEX['unknown'])] = 1.0
+    return vec
+
+
+def load_tags(db_path: str) -> dict[str, str]:
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute("SELECT id, tag FROM items").fetchall()
+    conn.close()
+    return {str(iid): (tag or 'unknown') for iid, tag in rows}
+
 
 def parse_args():
     p = argparse.ArgumentParser()
@@ -33,19 +50,17 @@ def parse_args():
     return p.parse_args()
 
 
-def load_combined(embeddings_path: str, alpha: float):
-    """Load embeddings.npz and return (item_ids, combined_tensor)."""
+def load_combined(embeddings_path: str, alpha: float, tags: dict[str, str]):
+    """Load embeddings.npz, append category one-hot, return (item_ids, tensor)."""
     data = np.load(embeddings_path)
     item_ids  = data['item_ids'].tolist()
-    clip_embs = torch.tensor(data['clip_embs'], dtype=torch.float32)
-    dino_embs = torch.tensor(data['dino_embs'], dtype=torch.float32)
+    clip_embs = F.normalize(torch.tensor(data['clip_embs'], dtype=torch.float32), p=2, dim=1)
+    dino_embs = F.normalize(torch.tensor(data['dino_embs'], dtype=torch.float32), p=2, dim=1)
+    visual    = torch.cat([alpha * clip_embs, (1.0 - alpha) * dino_embs], dim=1)  # (N, 1792)
 
-    # Re-normalise (should already be unit vectors, but be safe)
-    clip_embs = F.normalize(clip_embs, p=2, dim=1)
-    dino_embs = F.normalize(dino_embs, p=2, dim=1)
-
-    combined = torch.cat([alpha * clip_embs, (1.0 - alpha) * dino_embs], dim=1)
-    return item_ids, combined          # combined shape: (N, 1792)
+    cat_vecs  = torch.stack([category_onehot(tags.get(iid)) for iid in item_ids])
+    combined  = torch.cat([visual, cat_vecs], dim=1)   # (N, 1802)
+    return item_ids, combined
 
 
 def update_db(db_path: str, scores: dict[str, float]):
@@ -67,8 +82,9 @@ def main():
     print(f'Device: {device}')
 
     print(f'Loading embeddings from {args.embeddings}...')
-    item_ids, combined = load_combined(args.embeddings, args.alpha)
-    print(f'  {len(item_ids)} items   embedding dim: {combined.shape[1]}')
+    tags = load_tags(args.db)
+    item_ids, combined = load_combined(args.embeddings, args.alpha, tags)
+    print(f'  {len(item_ids)} items   embedding dim: {combined.shape[1]}  (1792 visual + 10 category)')
     print(f'  alpha={args.alpha}  (FashionCLIP {args.alpha:.0%} / DINOv2 {1-args.alpha:.0%})')
 
     print(f'\nLoading MLP from {args.mlp}...')
