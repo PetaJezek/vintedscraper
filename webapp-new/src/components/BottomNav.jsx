@@ -11,9 +11,10 @@ const tabs = [
 export default function BottomNav() {
   return (
     <nav style={{
-      position: 'fixed', bottom: 0, left: 0, right: 0,
-      height: 'calc(var(--nav-h) + 5px)',
-      paddingBottom: '5px',
+      flexShrink: 0,
+      width: '100%',
+      height: 'calc(var(--nav-h) + env(safe-area-inset-bottom, 0px))',
+      paddingBottom: 'env(safe-area-inset-bottom, 0px)',
       background: 'rgba(8,8,15,0.92)',
       backdropFilter: 'blur(20px)',
       borderTop: '1px solid var(--border)',

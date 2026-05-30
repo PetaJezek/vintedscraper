@@ -12,7 +12,8 @@ export default function CompareScreen() {
   async function loadPair() {
     setLoading(true);
     try {
-      const [a, b] = await Promise.all([fetchNextItem('unseen'), fetchNextItem('unseen')]);
+      const a = await fetchNextItem('random', 'training');
+      const b = await fetchNextItem('random', 'training', a?.id);
       setPair([a, b]);
     } catch {
       setPair([null, null]);

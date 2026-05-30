@@ -7,6 +7,7 @@ const ROTATION_FACTOR = 0.08;
 
 export default function SwipeCard({ item, onSwipe, style, isTop }) {
   const cardRef = useRef(null);
+  const dragMoved = useRef(false);
   const x = useMotionValue(0);
   const y = useMotionValue(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -64,15 +65,19 @@ export default function SwipeCard({ item, onSwipe, style, isTop }) {
         x,
         y,
         rotate,
-        cursor: isDragging ? 'grabbing' : 'grab',
+        cursor: isDragging ? 'grabbing' : 'pointer',
         touchAction: 'none',
         ...style,
       }}
       drag={isTop}
       dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
       dragElastic={0.8}
-      onDragStart={() => setIsDragging(true)}
+      onDragStart={() => { setIsDragging(true); dragMoved.current = false; }}
+      onDrag={(_, info) => {
+        if (Math.abs(info.offset.x) > 8 || Math.abs(info.offset.y) > 8) dragMoved.current = true;
+      }}
       onDragEnd={handleDragEnd}
+      onClick={() => { if (!dragMoved.current && item?.url) window.open(item.url, '_blank', 'noopener'); }}
       whileTap={{ scale: 1.02 }}
     >
       {/* Card body */}

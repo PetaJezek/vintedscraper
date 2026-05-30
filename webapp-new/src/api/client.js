@@ -1,67 +1,103 @@
-const BASE = 'http://localhost:8000';
-const TOKEN = 'ahoj';
+// In dev (Vite on :5173) proxy forwards /api and /images to :8000.
+// In prod the app is served from :8000 directly — relative paths work.
+const BASE = import.meta.env.DEV ? 'http://localhost:8000' : '';
+
+const getToken = () => localStorage.getItem('vinted_token') || '';
 
 const headers = () => ({
   'Content-Type': 'application/json',
-  'Authorization': `Bearer ${TOKEN}`,
+  'Authorization': `Bearer ${getToken()}`,
 });
 
-export async function fetchNextItem(order = 'random', context = 'training') {
-  const res = await fetch(`${BASE}/api/next_item?order=${order}&context=${context}`, { headers: headers() });
-  if (!res.ok) throw new Error('No items');
+async function apiFetch(url, options) {
+  try {
+    const res = await fetch(url, options);
+    window.dispatchEvent(new Event('server:online'));
+    return res;
+  } catch {
+    window.dispatchEvent(new Event('server:offline'));
+    throw new Error('SERVER_OFFLINE');
+  }
+}
+
+async function handle(res) {
+  if (res.status === 401) {
+    localStorage.removeItem('vinted_token');
+    window.dispatchEvent(new Event('auth:logout'));
+    throw new Error('UNAUTHORIZED');
+  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
+}
+
+export async function login(password) {
+  const res = await apiFetch(`${BASE}/api/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  if (res.status === 401) throw new Error('Wrong password');
+  if (!res.ok) throw new Error('Login failed');
+  const data = await res.json();
+  localStorage.setItem('vinted_token', data.access_token);
+  return data.access_token;
+}
+
+export function logout() {
+  localStorage.removeItem('vinted_token');
+  window.dispatchEvent(new Event('auth:logout'));
+}
+
+export async function fetchNextItem(order = 'random', context = 'training', excludeId = null) {
+  const params = new URLSearchParams({ order, context });
+  if (excludeId) params.set('exclude', excludeId);
+  return handle(await apiFetch(`${BASE}/api/next_item?${params}`, { headers: headers() }));
 }
 
 export async function triggerCheckSold() {
-  const res = await fetch(`${BASE}/api/check_sold`, { method: 'POST', headers: headers() });
-  if (!res.ok) throw new Error('Check sold failed');
-  return res.json();
+  return handle(await apiFetch(`${BASE}/api/check_sold`, { method: 'POST', headers: headers() }));
 }
 
 export async function rateItem(item_id, rating) {
-  const res = await fetch(`${BASE}/api/rate`, {
+  return handle(await apiFetch(`${BASE}/api/rate`, {
     method: 'POST',
     headers: headers(),
     body: JSON.stringify({ item_id, rating }),
-  });
-  if (!res.ok) throw new Error('Rate failed');
-  return res.json();
+  }));
 }
 
 export async function undoLastSwipe() {
-  const res = await fetch(`${BASE}/api/undo`, { method: 'POST', headers: headers() });
-  if (!res.ok) throw new Error('Undo failed');
-  return res.json();
+  return handle(await apiFetch(`${BASE}/api/undo`, { method: 'POST', headers: headers() }));
 }
 
 export async function fetchLiked() {
-  const res = await fetch(`${BASE}/api/ratings`, { headers: headers() });
-  if (!res.ok) throw new Error('Fetch liked failed');
-  return res.json();
+  return handle(await apiFetch(`${BASE}/api/ratings`, { headers: headers() }));
 }
 
 export async function fetchStats() {
-  const res = await fetch(`${BASE}/api/stats`, { headers: headers() });
-  if (!res.ok) throw new Error('Fetch stats failed');
-  return res.json();
+  return handle(await apiFetch(`${BASE}/api/stats`, { headers: headers() }));
 }
 
 export async function triggerRetrain() {
-  const res = await fetch(`${BASE}/api/retrain`, { method: 'POST', headers: headers() });
-  if (!res.ok) throw new Error('Retrain failed');
-  return res.json();
+  return handle(await apiFetch(`${BASE}/api/retrain`, { method: 'POST', headers: headers() }));
 }
 
 export async function triggerRescore() {
-  const res = await fetch(`${BASE}/api/rescore`, { method: 'POST', headers: headers() });
-  if (!res.ok) throw new Error('Rescore failed');
-  return res.json();
+  return handle(await apiFetch(`${BASE}/api/rescore`, { method: 'POST', headers: headers() }));
 }
 
 export async function triggerBuildBlocklist() {
-  const res = await fetch(`${BASE}/api/build_blocklist`, { method: 'POST', headers: headers() });
-  if (!res.ok) throw new Error('Build blocklist failed');
-  return res.json();
+  return handle(await apiFetch(`${BASE}/api/build_blocklist`, { method: 'POST', headers: headers() }));
+}
+
+export async function ping() {
+  try {
+    await fetch(`${BASE}/api/stats`, { headers: headers() });
+    window.dispatchEvent(new Event('server:online'));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function imageUrl(path) {

@@ -1,4 +1,6 @@
 
+import binascii
+import getpass
 import json
 import os
 import subprocess
@@ -16,11 +18,6 @@ app = FastAPI(title="Fashion Swipe API")
 
 security = HTTPBearer()
 
-# ============ CONFIGURATION ============
-ACCESS_TOKEN = "ahoj"
-PASSWORD = "lokiloki"
-PASSWORD_HASH = hashlib.sha256(PASSWORD.encode()).hexdigest()
-
 ITEMS_TO_RETRAIN = 100
 
 app.add_middleware(
@@ -33,6 +30,54 @@ app.add_middleware(
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(SCRIPT_DIR)
+PASSWORD_HASH_FILE = os.path.join(SCRIPT_DIR, "password.hash")
+
+# ============ PASSWORD SETUP ============
+
+def _hash_password(password: str) -> str:
+    salt = os.urandom(32)
+    key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 260000)
+    return binascii.hexlify(salt).decode() + ':' + binascii.hexlify(key).decode()
+
+def _verify_password(stored: str, provided: str) -> bool:
+    try:
+        salt_hex, key_hex = stored.split(':')
+        salt = binascii.unhexlify(salt_hex)
+        key = hashlib.pbkdf2_hmac('sha256', provided.encode('utf-8'), salt, 260000)
+        return secrets.compare_digest(binascii.hexlify(key).decode(), key_hex)
+    except Exception:
+        return False
+
+def _load_or_create_password() -> str:
+    if os.path.exists(PASSWORD_HASH_FILE):
+        with open(PASSWORD_HASH_FILE) as f:
+            return f.read().strip()
+    print("\n" + "=" * 62)
+    print("  FIRST-TIME SETUP — SET YOUR PASSWORD")
+    print("=" * 62)
+    print("  !! WARNING: There is NO password recovery. !!")
+    print("  If you forget your password, you must delete:")
+    print(f"    {PASSWORD_HASH_FILE}")
+    print("  and restart the server to set a new one.")
+    print("=" * 62 + "\n")
+    while True:
+        pw = getpass.getpass("  New password: ")
+        if len(pw) < 4:
+            print("  Must be at least 4 characters. Try again.")
+            continue
+        pw2 = getpass.getpass("  Confirm password: ")
+        if pw != pw2:
+            print("  Passwords don't match. Try again.")
+            continue
+        break
+    stored = _hash_password(pw)
+    with open(PASSWORD_HASH_FILE, 'w') as f:
+        f.write(stored)
+    print("\n  Password saved. Starting server...\n")
+    return stored
+
+STORED_PASSWORD_HASH = _load_or_create_password()
+ACCESS_TOKEN = secrets.token_hex(32)  # fresh random token every server restart
 DB_PATH = os.path.join(SCRIPT_DIR, "vinted_clothes.db")
 POLISH_REMOVED_FILE = os.path.join(ROOT_DIR, "polish_removed.json")
 
@@ -48,7 +93,7 @@ class LoginRequest(BaseModel):
 
 @app.post("/api/login")
 async def login(request: LoginRequest):
-    if hashlib.sha256(request.password.encode()).hexdigest() != PASSWORD_HASH:
+    if not _verify_password(STORED_PASSWORD_HASH, request.password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect password")
     return {"access_token": ACCESS_TOKEN, "token_type": "bearer"}
 
@@ -150,15 +195,22 @@ async def get_stats(token: str = Depends(verify_token)):
 async def get_next_item(
     order: str = Query("random"),   # random | best
     context: str = Query("training"),  # training | buy
+    exclude: str = Query(""),  # comma-separated item IDs to skip
     token: str = Depends(verify_token),
 ):
     conn = get_conn()
     c = conn.cursor()
 
-    order_sql = "RANDOM()" if order == "random" else "predicted_score DESC"
+    order_sql = "RANDOM()" if order == "random" else "predicted_score DESC NULLS LAST, RANDOM()"
     where_clauses = ["shown = 0"]
+    params: list = []
     if context == "buy":
         where_clauses.append("(sold IS NULL OR sold = 0)")
+    exclude_ids = [e.strip() for e in exclude.split(',') if e.strip()]
+    if exclude_ids:
+        placeholders = ','.join('?' for _ in exclude_ids)
+        where_clauses.append(f"id NOT IN ({placeholders})")
+        params.extend(exclude_ids)
     where_sql = " AND ".join(where_clauses)
 
     c.execute(f"""
@@ -167,7 +219,7 @@ async def get_next_item(
         WHERE {where_sql}
         ORDER BY {order_sql}
         LIMIT 1
-    """)
+    """, params)
 
     row = c.fetchone()
     conn.close()
