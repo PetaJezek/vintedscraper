@@ -417,6 +417,112 @@ def _check_sold():
     conn.close()
     print(f"✅ Sold check done — updated {updated} items")
 
+SCRAPER_CONFIG_FILE = os.path.join(ROOT_DIR, "scraper_config.txt")
+
+# Keys that can appear as key = value lines in scraper_config.txt
+_CONFIG_KEYS = {"filter_polish", "max_pages", "concurrent_items", "rate_limit_pause", "image_mode", "alpha"}
+
+def _parse_scraper_config() -> dict:
+    cfg = {
+        "filter_polish": False,
+        "max_pages": 20,
+        "concurrent_items": 2,
+        "rate_limit_pause": 40,
+        "image_mode": "catalog",
+        "alpha": 0.5,
+        "urls": [],
+    }
+    if not os.path.exists(SCRAPER_CONFIG_FILE):
+        return cfg
+    for raw in open(SCRAPER_CONFIG_FILE, encoding="utf-8"):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" in line and not line.startswith("http"):
+            key, _, val = line.partition("=")
+            key, val = key.strip().lower(), val.strip()
+            if key == "filter_polish":
+                cfg["filter_polish"] = val.lower() in ("yes", "true", "1")
+            elif key == "max_pages":
+                try: cfg["max_pages"] = int(val)
+                except ValueError: pass
+            elif key == "concurrent_items":
+                try: cfg["concurrent_items"] = max(1, min(8, int(val)))
+                except ValueError: pass
+            elif key == "rate_limit_pause":
+                try: cfg["rate_limit_pause"] = max(5, int(val))
+                except ValueError: pass
+            elif key == "image_mode" and val in ("catalog", "item"):
+                cfg["image_mode"] = val
+            elif key == "alpha":
+                try: cfg["alpha"] = max(0.0, min(1.0, float(val)))
+                except ValueError: pass
+        elif line.startswith("http"):
+            url_part = line.split("#")[0].strip()
+            label    = line.split("#")[1].strip() if "#" in line else ""
+            cfg["urls"].append({"url": url_part, "label": label})
+    return cfg
+
+def _write_scraper_config(cfg: dict) -> None:
+    lines = [
+        "# ═══════════════════════════════════════════════════════════════════════════\n",
+        "#  VINTED SCRAPER — CONFIG FILE\n",
+        "#  Tento soubor / tento súbor / this file is the only thing you need to edit.\n",
+        "# ═══════════════════════════════════════════════════════════════════════════\n",
+        "\n",
+        "# EN: Set to yes to skip Polish sellers  /  CZ: yes = přeskočit polské prodejce\n",
+        f"filter_polish = {'yes' if cfg.get('filter_polish') else 'no'}\n",
+        "\n",
+        "# EN: Catalog pages per URL  /  CZ: Stránek katalogu na URL\n",
+        f"max_pages = {cfg.get('max_pages', 20)}\n",
+        "\n",
+        "# EN: Parallel item workers (1-8, lower = safer)  /  CZ: Paralelní pracovníci\n",
+        f"concurrent_items = {cfg.get('concurrent_items', 2)}\n",
+        "\n",
+        "# EN: Seconds to pause on rate-limit  /  CZ: Sekund pauzy při rate-limitu\n",
+        f"rate_limit_pause = {cfg.get('rate_limit_pause', 40)}\n",
+        "\n",
+        "# EN: Image quality: catalog (fast thumbnail) or item (full image, slower)\n",
+        f"image_mode = {cfg.get('image_mode', 'catalog')}\n",
+        "\n",
+        "# EN: FashionCLIP vs DINOv2 balance (0.0 = all DINOv2, 1.0 = all FashionCLIP)\n",
+        f"alpha = {cfg.get('alpha', 0.5)}\n",
+        "\n",
+        "# ── Search URLs ── one per line, optionally followed by  # label ────────────\n",
+        "# EN: Paste a vinted.cz search URL. Remove search_id= and time= if present.\n",
+        "# CZ: Vlož URL z vinted.cz. Odstraň search_id= a time= pokud jsou přítomny.\n",
+        "# SK: Vlož URL z vinted.cz. Odstráň search_id= a time= ak sú prítomné.\n",
+        "#\n",
+        "# Example / Příklad:  https://www.vinted.cz/catalog?size_ids[]=210  # XL\n",
+        "#\n",
+    ]
+    for entry in cfg.get("urls", []):
+        url   = entry.get("url", "").strip()
+        label = entry.get("label", "").strip()
+        if not url:
+            continue
+        lines.append(f"{url}  # {label}\n" if label else f"{url}\n")
+    with open(SCRAPER_CONFIG_FILE, "w", encoding="utf-8") as f:
+        f.writelines(lines)
+
+@app.get("/api/config")
+async def get_config(token: str = Depends(verify_token)):
+    return _parse_scraper_config()
+
+class ScraperConfig(BaseModel):
+    filter_polish: bool = False
+    max_pages: int = 20
+    concurrent_items: int = 2
+    rate_limit_pause: int = 40
+    image_mode: str = "catalog"
+    alpha: float = 0.5
+    urls: list = []
+
+@app.post("/api/config")
+async def save_config(cfg: ScraperConfig, token: str = Depends(verify_token)):
+    _write_scraper_config(cfg.model_dump())
+    return {"status": "saved"}
+
 @app.post("/api/flag_polish")
 async def flag_polish(item: dict = Body(...), token: str = Depends(verify_token)):
     existing: list = []

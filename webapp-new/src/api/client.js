@@ -90,6 +90,18 @@ export async function triggerBuildBlocklist() {
   return handle(await apiFetch(`${BASE}/api/build_blocklist`, { method: 'POST', headers: headers() }));
 }
 
+export async function fetchConfig() {
+  return handle(await apiFetch(`${BASE}/api/config`, { headers: headers() }));
+}
+
+export async function saveConfig(cfg) {
+  return handle(await apiFetch(`${BASE}/api/config`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(cfg),
+  }));
+}
+
 export async function triggerScoreMlp() {
   return handle(await apiFetch(`${BASE}/api/score_mlp`, { method: 'POST', headers: headers() }));
 }

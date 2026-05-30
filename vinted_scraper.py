@@ -83,8 +83,8 @@ FILTER_POLISH = False   # overridden by scraper_config.txt
 
 
 def _load_scraper_config() -> None:
-    """Read scraper_config.txt and override SCRAPE_URLS, MAX_PAGES_PER_URL, FILTER_POLISH."""
-    global SCRAPE_URLS, MAX_PAGES_PER_URL, FILTER_POLISH
+    """Read scraper_config.txt and override module-level config variables."""
+    global SCRAPE_URLS, MAX_PAGES_PER_URL, FILTER_POLISH, CONCURRENT_ITEMS, RATE_LIMIT_PAUSE, IMAGE_SCRAPE_MODE
     config_path = Path("scraper_config.txt")
     if not config_path.exists():
         return
@@ -97,14 +97,21 @@ def _load_scraper_config() -> None:
 
         if "=" in line and not line.startswith("http"):
             key, _, val = line.partition("=")
-            key, val = key.strip().lower(), val.strip().lower()
+            key, val = key.strip().lower(), val.strip()
+            vl = val.lower()
             if key == "filter_polish":
-                FILTER_POLISH = val in ("yes", "true", "1")
+                FILTER_POLISH = vl in ("yes", "true", "1")
             elif key == "max_pages":
-                try:
-                    MAX_PAGES_PER_URL = int(val)
-                except ValueError:
-                    pass
+                try: MAX_PAGES_PER_URL = int(val)
+                except ValueError: pass
+            elif key == "concurrent_items":
+                try: CONCURRENT_ITEMS = max(1, min(8, int(val)))
+                except ValueError: pass
+            elif key == "rate_limit_pause":
+                try: RATE_LIMIT_PAUSE = max(5, int(val))
+                except ValueError: pass
+            elif key == "image_mode" and vl in ("catalog", "item"):
+                IMAGE_SCRAPE_MODE = vl
 
         elif line.startswith("http"):
             url_part = line.split("#")[0].strip()

@@ -7,6 +7,7 @@ import SwipeScreen from './screens/SwipeScreen';
 import LikedScreen from './screens/LikedScreen';
 import CompareScreen from './screens/CompareScreen';
 import ProfileScreen from './screens/ProfileScreen';
+import ConfigScreen from './screens/ConfigScreen';
 import LoginScreen from './screens/LoginScreen';
 import { ping } from './api/client';
 
@@ -127,6 +128,7 @@ function Layout() {
               <Route path="/compare" element={<CompareScreen />} />
               <Route path="/liked" element={<LikedScreen />} />
               <Route path="/profile" element={<ProfileScreen />} />
+              <Route path="/config" element={<ConfigScreen />} />
             </Routes>
           </motion.div>
         </AnimatePresence>
