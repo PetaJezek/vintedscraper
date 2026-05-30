@@ -1,10 +1,10 @@
 #!/bin/bash
-# Score all items with the trained MLP and update the database.
-# Run this after training your MLP (style_mlp.pt must exist).
-# Also handles first-time embedding computation if needed.
+# Train the MLP on accumulated ratings, then score all items.
+# Run this from the terminal when you want to retrain.
+# The webapp Retrain button does the same thing.
 #
 # Usage:
-#   ./scriptAI.sh               — score with default alpha 0.5
+#   ./scriptAI.sh               — default alpha 0.5
 #   ./scriptAI.sh --alpha 0.6   — trust FashionCLIP more
 
 set -e
@@ -13,32 +13,38 @@ source .venv/bin/activate
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  AI SCORER"
+echo "  AI PIPELINE"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-# Make sure embeddings exist (incremental — skips already-computed items)
+# Compute embeddings for any new images first
 echo "▶  Computing embeddings for any new images..."
 python compute_embeddings.py
 echo ""
 
-if [ ! -f "style_mlp.pt" ]; then
-    echo "⚠️  No style_mlp.pt found."
-    echo ""
-    echo "  Train your MLP first, then save it with:"
-    echo "    torch.save(model, 'style_mlp.pt')"
-    echo ""
-    echo "  See mlp_model.py for the architecture to use."
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+if [ ! -f "train_mlp.py" ]; then
+    echo "❌  train_mlp.py not found — write your training script first."
+    echo "    See mlp_model.py for the StyleMLP class to use."
     echo ""
     exit 1
 fi
 
-echo "▶  Scoring items with MLP..."
+echo "▶  Training MLP..."
+python train_mlp.py
+echo ""
+
+if [ ! -f "style_mlp.pt" ]; then
+    echo "❌  training finished but style_mlp.pt was not saved."
+    echo "    Make sure your script ends with: torch.save(model, 'style_mlp.pt')"
+    echo ""
+    exit 1
+fi
+
+echo "▶  Scoring all items with new MLP..."
 python score_with_mlp.py "$@"
 echo ""
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  ✅  Scoring complete. Open the app — items are ranked by score."
+echo "  ✅  Done. Open the app — items are ranked by your model."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""

@@ -318,17 +318,6 @@ async def trigger_rescore(background_tasks: BackgroundTasks, token: str = Depend
     background_tasks.add_task(_rescore)
     return {"status": "rescore_started"}
 
-@app.post("/api/score_mlp")
-async def trigger_score_mlp(background_tasks: BackgroundTasks, token: str = Depends(verify_token)):
-    mlp_path = os.path.join(ROOT_DIR, "style_mlp.pt")
-    emb_path = os.path.join(ROOT_DIR, "embeddings.npz")
-    if not os.path.exists(mlp_path):
-        raise HTTPException(status_code=400, detail="style_mlp.pt not found — train the model first")
-    if not os.path.exists(emb_path):
-        raise HTTPException(status_code=400, detail="embeddings.npz not found — run compute_embeddings.py first")
-    background_tasks.add_task(_score_mlp)
-    return {"status": "mlp_scoring_started"}
-
 @app.post("/api/build_blocklist")
 async def trigger_build_blocklist(background_tasks: BackgroundTasks, token: str = Depends(verify_token)):
     background_tasks.add_task(_build_blocklist)
@@ -341,11 +330,33 @@ async def trigger_check_sold(background_tasks: BackgroundTasks, token: str = Dep
     return {"status": "check_sold_started"}
 
 def _retrain():
-    try:
-        from retrain_model import retrain_and_predict
-        retrain_and_predict()
-    except Exception as e:
-        print(f"Retrain error: {e}")
+    train_script = os.path.join(ROOT_DIR, "train_mlp.py")
+    if not os.path.exists(train_script):
+        print("Retrain skipped: train_mlp.py not found")
+        return
+    print("Training MLP...")
+    result = subprocess.run(
+        [sys.executable, train_script],
+        cwd=ROOT_DIR, capture_output=True, text=True
+    )
+    print(result.stdout)
+    if result.returncode != 0:
+        print(f"Training error: {result.stderr}")
+        return
+    # Auto-score immediately after training
+    emb_path = os.path.join(ROOT_DIR, "embeddings.npz")
+    mlp_path = os.path.join(ROOT_DIR, "style_mlp.pt")
+    if os.path.exists(emb_path) and os.path.exists(mlp_path):
+        print("Scoring items with new MLP...")
+        result = subprocess.run(
+            [sys.executable, os.path.join(ROOT_DIR, "score_with_mlp.py")],
+            cwd=ROOT_DIR, capture_output=True, text=True
+        )
+        print(result.stdout)
+        if result.returncode != 0:
+            print(f"Scoring error: {result.stderr}")
+    else:
+        print("Scoring skipped: embeddings.npz or style_mlp.pt missing")
 
 def _rescore():
     # Legacy similarity scorer — kept as fallback
@@ -362,17 +373,6 @@ def _rescore():
     except Exception as e:
         print(f"Rescore error: {e}")
 
-def _score_mlp():
-    try:
-        result = subprocess.run(
-            [sys.executable, os.path.join(ROOT_DIR, "score_with_mlp.py")],
-            cwd=ROOT_DIR, capture_output=True, text=True
-        )
-        print(result.stdout)
-        if result.returncode != 0:
-            print(f"MLP scoring error: {result.stderr}")
-    except Exception as e:
-        print(f"MLP scoring error: {e}")
 
 def _build_blocklist():
     try:
