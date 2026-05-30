@@ -27,8 +27,9 @@ ALPHA       = 0.5    # FashionCLIP weight; DINOv2 gets (1 - ALPHA)
 EPOCHS      = 150
 LR          = 3e-4
 BATCH_SIZE  = 32
-HIDDEN_DIMS = (512, 128)
+HIDDEN_DIMS = (256, 64)   # conservative for small datasets; bump to (512, 128) at 1000+ ratings
 DROPOUT     = 0.3
+VAL_SPLIT   = 0.15        # fraction of data held out for validation
 
 TARGETS = {
     0: 0.05,   # dislike
@@ -58,25 +59,19 @@ def build_dataset(alpha: float):
     if sum(counts.values()) == 0:
         raise RuntimeError("No ratings found. Swipe some items first.")
 
-    # Load precomputed embeddings
     data      = np.load(EMBEDDINGS_FILE)
     emb_ids   = data['item_ids'].tolist()
     clip_embs = F.normalize(torch.tensor(data['clip_embs'], dtype=torch.float32), p=2, dim=1)
     dino_embs = F.normalize(torch.tensor(data['dino_embs'], dtype=torch.float32), p=2, dim=1)
     combined  = torch.cat([alpha * clip_embs, (1 - alpha) * dino_embs], dim=1)  # (N, 1792)
 
-    # Match rated items to their embedding vectors
     X, y = [], []
-    missing = 0
     for i, item_id in enumerate(emb_ids):
         if item_id in ratings:
             X.append(combined[i])
             y.append(TARGETS[ratings[item_id]])
-        elif item_id not in ratings:
-            pass  # unrated — skip
-    # Count items rated but not yet embedded
-    embedded_ids = set(emb_ids)
-    missing = sum(1 for iid in ratings if iid not in embedded_ids)
+
+    missing = sum(1 for iid in ratings if iid not in set(emb_ids))
     if missing:
         print(f"  ⚠️  {missing} rated items have no embedding yet — run compute_embeddings.py")
 
@@ -85,12 +80,20 @@ def build_dataset(alpha: float):
 
     X = torch.stack(X)
     y = torch.tensor(y, dtype=torch.float32)
-    print(f"Training set:   {len(X)} items  |  embedding dim: {X.shape[1]}\n")
+    print(f"Dataset:  {len(X)} items  |  embedding dim: {X.shape[1]}")
     return X, y
 
 
+def split(X, y, val_frac):
+    """Stratified-ish split: shuffle then cut."""
+    idx = torch.randperm(len(X))
+    cut = max(1, int(len(X) * val_frac))
+    val_idx, trn_idx = idx[:cut], idx[cut:]
+    return X[trn_idx], y[trn_idx], X[val_idx], y[val_idx]
+
+
 def class_weights(y: torch.Tensor) -> torch.Tensor:
-    """Weight each sample inversely by class frequency so rare ratings aren't ignored."""
+    """Inverse-frequency weights so rare superlikes aren't drowned out."""
     w = torch.ones(len(y))
     for target in TARGETS.values():
         mask  = (y == target)
@@ -100,71 +103,77 @@ def class_weights(y: torch.Tensor) -> torch.Tensor:
     return w
 
 
-def train(X: torch.Tensor, y: torch.Tensor) -> StyleMLP:
+def train(X_trn, y_trn, X_val, y_val) -> StyleMLP:
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print(f"Device: {device}")
+    print(f"Device: {device}  |  train={len(X_trn)}  val={len(X_val)}\n")
 
-    X = X.to(device)
-    y = y.to(device)
-    w = class_weights(y).to(device)
+    X_trn, y_trn = X_trn.to(device), y_trn.to(device)
+    X_val, y_val = X_val.to(device), y_val.to(device)
+    w_trn = class_weights(y_trn).to(device)
 
-    model     = StyleMLP(input_dim=X.shape[1], hidden_dims=HIDDEN_DIMS, dropout=DROPOUT).to(device)
+    model     = StyleMLP(input_dim=X_trn.shape[1], hidden_dims=HIDDEN_DIMS, dropout=DROPOUT).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
 
-    loader = DataLoader(TensorDataset(X, y, w), batch_size=BATCH_SIZE, shuffle=True)
+    loader = DataLoader(TensorDataset(X_trn, y_trn, w_trn), batch_size=BATCH_SIZE, shuffle=True)
 
-    best_loss  = float('inf')
-    best_state = None
+    best_val_loss = float('inf')
+    best_state    = None
 
     for epoch in range(1, EPOCHS + 1):
+        # ── train ──
         model.train()
-        epoch_loss = 0.0
+        trn_loss = 0.0
         for xb, yb, wb in loader:
             optimizer.zero_grad()
             pred = torch.sigmoid(model(xb).squeeze(-1))
-            loss = (wb * (pred - yb) ** 2).mean()  # weighted MSE
+            loss = (wb * (pred - yb) ** 2).mean()
             loss.backward()
             optimizer.step()
-            epoch_loss += loss.item()
+            trn_loss += loss.item()
         scheduler.step()
 
-        avg = epoch_loss / len(loader)
-        if avg < best_loss:
-            best_loss  = avg
-            best_state = {k: v.clone() for k, v in model.state_dict().items()}
+        # ── validate ──
+        model.eval()
+        with torch.no_grad():
+            val_pred = torch.sigmoid(model(X_val).squeeze(-1))
+            val_loss = ((val_pred - y_val) ** 2).mean().item()
+
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            best_state    = {k: v.clone() for k, v in model.state_dict().items()}
 
         if epoch % 25 == 0 or epoch == EPOCHS:
-            print(f"  epoch {epoch:3d}/{EPOCHS}   loss = {avg:.4f}")
+            avg_trn = trn_loss / len(loader)
+            gap     = avg_trn - val_loss
+            flag    = "  ⚠️  overfitting" if gap > 0.05 else ""
+            print(f"  epoch {epoch:3d}/{EPOCHS}   trn={avg_trn:.4f}   val={val_loss:.4f}{flag}")
 
     model.load_state_dict(best_state)
-    print(f"\nBest loss: {best_loss:.4f}")
+    print(f"\nBest val loss: {best_val_loss:.4f}")
     return model
 
 
-def evaluate(model: StyleMLP, X: torch.Tensor, y: torch.Tensor):
+def evaluate(model, X, y):
     model.eval()
     with torch.no_grad():
         scores = torch.sigmoid(model(X).squeeze(-1)).numpy()
     y_np = y.numpy()
 
-    print("\nScore distribution on training set:")
+    print("\nPer-class accuracy on full dataset:")
     for rating, target in TARGETS.items():
-        label = {0: 'dislike', 1: 'like', 2: 'superlike'}[rating]
-        mask  = (y_np == target)
-        if mask.any():
-            avg = scores[mask].mean()
-            print(f"  {label:10s}  target={target:.2f}   model avg={avg:.3f}")
-
-    # How many liked items actually score above 0.7?
-    liked_mask     = (y_np >= TARGETS[1])
-    disliked_mask  = (y_np <= TARGETS[0])
-    if liked_mask.any():
-        above_threshold = (scores[liked_mask] > 0.7).mean() * 100
-        print(f"\n  {above_threshold:.0f}% of liked items score above 0.7")
-    if disliked_mask.any():
-        below_threshold = (scores[disliked_mask] < 0.3).mean() * 100
-        print(f"  {below_threshold:.0f}% of disliked items score below 0.3")
+        label     = {0: 'dislike', 1: 'like', 2: 'superlike'}[rating]
+        threshold = {0: 0.3, 1: 0.7, 2: 0.85}[rating]
+        direction = {0: 'below', 1: 'above', 2: 'above'}[rating]
+        mask      = (y_np == target)
+        if not mask.any():
+            continue
+        if direction == 'above':
+            pct = (scores[mask] > threshold).mean() * 100
+        else:
+            pct = (scores[mask] < threshold).mean() * 100
+        avg = scores[mask].mean()
+        print(f"  {label:10s}  avg={avg:.3f}   {pct:.0f}% {direction} {threshold}")
 
 
 def main():
@@ -173,7 +182,12 @@ def main():
     print("=" * 52 + "\n")
 
     X, y = build_dataset(ALPHA)
-    model = train(X, y)
+
+    if len(X) < 20:
+        print(f"\n⚠️  Only {len(X)} rated items — swipe more before training for reliable results.")
+
+    X_trn, y_trn, X_val, y_val = split(X, y, VAL_SPLIT)
+    model = train(X_trn, y_trn, X_val, y_val)
 
     torch.save(model, OUTPUT_FILE)
     print(f"\nSaved → {OUTPUT_FILE}")
@@ -181,7 +195,7 @@ def main():
     evaluate(model, X.cpu(), y.cpu())
 
     print("\n" + "=" * 52)
-    print("  Done. Run score_with_mlp.py to update the DB.")
+    print("  Done. score_with_mlp.py will run automatically next.")
     print("=" * 52 + "\n")
 
 
