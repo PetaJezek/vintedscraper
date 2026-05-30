@@ -1,12 +1,42 @@
-/webapp/fashion-swiper-frontend
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
 
-/webapp/vinted_clothes.db
-/webapp/vinted_images
-/debug_pages
+# ── Virtual environment ───────────────────────────────────────────────────────
+.venv/
 
-/negative_images
+# ── Data & generated files ────────────────────────────────────────────────────
+webapp/vinted_clothes.db
+webapp/vinted_images/
+seen_item_ids.json
+vinted_items.json
+vinted_cookies.json
+polish_removed.json
+embeddings.npz
+scored_items.json
+scraper_metrics.json
+cleaning_log.json
+
+# ── Model files ───────────────────────────────────────────────────────────────
+style_mlp.pt
+*.joblib
 my_taste_profile.npy
 negative_profile.npy
 
-seen_item_ids.json
-vinted_items.json
+# ── Scraper debug output ──────────────────────────────────────────────────────
+debug_pages/
+negative_images/
+pinterest_images/
+
+# ── Webapp ────────────────────────────────────────────────────────────────────
+webapp/password.hash
+webapp-new/node_modules/
+webapp-new/dist/
+
+# ── OS / editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
