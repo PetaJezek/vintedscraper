@@ -25,7 +25,9 @@ def init_db():
         CREATE TABLE IF NOT EXISTS items (
             id TEXT PRIMARY KEY, url TEXT, scraped_at TEXT, tag TEXT, title TEXT,
             brand TEXT, price TEXT, location TEXT, size TEXT, description TEXT,
-            image_url TEXT, shown INTEGER DEFAULT 0, predicted_score REAL
+            image_url TEXT, shown INTEGER DEFAULT 0, predicted_score REAL,
+            color TEXT, condition TEXT, category_path TEXT, hashtags TEXT,
+            price_value REAL, currency TEXT
         )
     ''')
 
@@ -39,10 +41,16 @@ def migrate_db():
     c = conn.cursor()
     existing = {row[1] for row in c.execute("PRAGMA table_info(items)").fetchall()}
     additions = {
-        "url":        "TEXT",
-        "scraped_at": "TEXT",
-        "tag":        "TEXT",
-        "location":   "TEXT",
+        "url":           "TEXT",
+        "scraped_at":    "TEXT",
+        "tag":           "TEXT",
+        "location":      "TEXT",
+        "color":         "TEXT",
+        "condition":     "TEXT",
+        "category_path": "TEXT",
+        "hashtags":      "TEXT",
+        "price_value":   "REAL",
+        "currency":      "TEXT",
     }
     for col, typ in additions.items():
         if col not in existing:
@@ -67,25 +75,24 @@ def populate_items():
     c = conn.cursor()
 
     for item in items:
-        # --- UPDATED BRAND EXTRACTION LOGIC ---
-        brand_to_store = None
-        
-        # Strategy 1: Try to extract from the 'location' field first
+        # --- BRAND EXTRACTION LOGIC ---
+        # Strategy 0: the scraper now extracts a real brand from the page JSON.
+        brand_to_store = (item.get("brand") or "").strip() or None
+
+        # Strategy 1 (legacy fallback): pull a "Brand …" line out of location text
         location_text = item.get("location", "")
-        if location_text and "Brand" in location_text:
-            lines = location_text.strip().split('\n')
-            for line in lines:
+        if not brand_to_store and location_text and "Brand" in location_text:
+            for line in location_text.strip().split('\n'):
                 if line.startswith("Brand"):
                     brand_to_store = line.replace("Brand", "").strip()
                     break
-        
-        # Strategy 2 (Fallback): If no brand was found, try to get it from the title
+
+        # Strategy 2 (legacy fallback): first word of the title
         if not brand_to_store:
             title = item.get("title", "")
             if title:
-                # Assume the first word of the title is the brand
                 brand_to_store = title.split(' ')[0]
-        # --- END OF UPDATED LOGIC ---
+        # --- END OF BRAND LOGIC ---
 
         # --- UPDATED IMAGE URL LOGIC ---
         # This creates a URL path, NOT a file path. This is crucial.
@@ -97,26 +104,39 @@ def populate_items():
             image_path_to_store = f"/images/{image_filename}"
         # --- END OF UPDATED IMAGE URL LOGIC ---
 
+        # Hashtags arrive as a list in the JSON — store as a comma-joined string
+        hashtags = item.get("hashtags")
+        hashtags_str = ", ".join(hashtags) if isinstance(hashtags, list) else (hashtags or None)
+
         c.execute('''
             INSERT INTO items (
-                id, url, scraped_at, tag, title, brand, price, location, size, description, image_url
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                id, url, scraped_at, tag, title, brand, price, location, size, description, image_url,
+                color, condition, category_path, hashtags, price_value, currency
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
-                url        = excluded.url,
-                scraped_at = excluded.scraped_at,
-                tag        = excluded.tag,
-                title      = excluded.title,
-                brand      = excluded.brand,
-                price      = excluded.price,
-                location   = excluded.location,
-                size       = excluded.size,
-                description= excluded.description,
-                image_url  = excluded.image_url
+                url           = excluded.url,
+                scraped_at    = excluded.scraped_at,
+                tag           = excluded.tag,
+                title         = excluded.title,
+                brand         = excluded.brand,
+                price         = excluded.price,
+                location      = excluded.location,
+                size          = excluded.size,
+                description   = excluded.description,
+                image_url     = excluded.image_url,
+                color         = excluded.color,
+                condition     = excluded.condition,
+                category_path = excluded.category_path,
+                hashtags      = excluded.hashtags,
+                price_value   = excluded.price_value,
+                currency      = excluded.currency
         ''', (
             item.get("id"), item.get("url"), item.get("scraped_at"), item.get("tag"), item.get("title"),
             brand_to_store,
             item.get("price"), item.get("location"), item.get("size"), item.get("description"),
-            image_path_to_store
+            image_path_to_store,
+            item.get("color"), item.get("condition"), item.get("category_path"), hashtags_str,
+            item.get("price_value"), item.get("currency"),
         ))
 
     conn.commit()

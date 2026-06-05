@@ -1,14 +1,17 @@
 import { NavLink } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { useLang } from '../i18n';
 
 const tabs = [
-  { to: '/', label: 'Swipe', icon: SwipeIcon },
-  { to: '/compare', label: 'Compare', icon: CompareIcon },
-  { to: '/liked', label: 'Liked', icon: HeartIcon },
-  { to: '/profile', label: 'Profile', icon: ProfileIcon },
+  { to: '/', key: 'nav.swipe', icon: SwipeIcon },
+  { to: '/compare', key: 'nav.compare', icon: CompareIcon },
+  { to: '/liked', key: 'nav.liked', icon: HeartIcon },
+  { to: '/profile', key: 'nav.profile', icon: ProfileIcon },
+  { to: '/config', key: 'nav.setup', icon: GearIcon },
 ];
 
 export default function BottomNav() {
+  const { t } = useLang();
   return (
     <nav style={{
       flexShrink: 0,
@@ -21,7 +24,7 @@ export default function BottomNav() {
       display: 'flex',
       zIndex: 100,
     }}>
-      {tabs.map(({ to, label, icon: Icon }) => (
+      {tabs.map(({ to, key, icon: Icon }) => (
         <NavLink
           key={to}
           to={to}
@@ -48,7 +51,7 @@ export default function BottomNav() {
                 color: isActive ? 'var(--accent-2)' : 'var(--text-3)',
                 transition: 'color 0.2s',
               }}>
-                {label}
+                {t(key)}
               </span>
             </>
           )}
@@ -88,6 +91,15 @@ function ProfileIcon({ active }) {
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? 'var(--accent-2)' : 'var(--text-3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ transition: 'stroke 0.2s' }}>
       <circle cx="12" cy="8" r="4"/>
       <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+    </svg>
+  );
+}
+
+function GearIcon({ active }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? 'var(--accent-2)' : 'var(--text-3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ transition: 'stroke 0.2s' }}>
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
     </svg>
   );
 }

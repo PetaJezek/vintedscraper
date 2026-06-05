@@ -106,6 +106,14 @@ export async function triggerScoreMlp() {
   return handle(await apiFetch(`${BASE}/api/score_mlp`, { method: 'POST', headers: headers() }));
 }
 
+export async function triggerScrape() {
+  return handle(await apiFetch(`${BASE}/api/scrape`, { method: 'POST', headers: headers() }));
+}
+
+export async function fetchJobStatus() {
+  return handle(await apiFetch(`${BASE}/api/job_status`, { headers: headers() }));
+}
+
 export async function ping() {
   try {
     await fetch(`${BASE}/api/stats`, { headers: headers() });

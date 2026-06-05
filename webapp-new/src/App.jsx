@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ToastProvider } from './components/Toast';
+import { LanguageProvider } from './i18n';
 import BottomNav from './components/BottomNav';
 import SwipeScreen from './screens/SwipeScreen';
 import LikedScreen from './screens/LikedScreen';
@@ -39,11 +40,13 @@ export default function App() {
   if (!token) return <LoginScreen onLogin={t => setToken(t)} />;
 
   return (
-    <ToastProvider>
-      <BrowserRouter>
-        <Layout />
-      </BrowserRouter>
-    </ToastProvider>
+    <LanguageProvider>
+      <ToastProvider>
+        <BrowserRouter>
+          <Layout />
+        </BrowserRouter>
+      </ToastProvider>
+    </LanguageProvider>
   );
 }
 

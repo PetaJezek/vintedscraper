@@ -5,6 +5,8 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
 from fastapi import FastAPI, HTTPException, Depends, status, Body, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -126,12 +128,21 @@ def init_db():
         shown INTEGER DEFAULT 0,
         predicted_score REAL
     )''')
-    # Add sold column if it doesn't exist yet (safe to run on old DBs)
-    try:
-        c.execute("ALTER TABLE items ADD COLUMN sold INTEGER DEFAULT NULL")
-        conn.commit()
-    except Exception:
-        pass  # column already exists
+    # Add columns that may be missing on older DBs (safe to run repeatedly)
+    for col, decl in [
+        ("sold",          "INTEGER DEFAULT NULL"),
+        ("color",         "TEXT"),
+        ("condition",     "TEXT"),
+        ("category_path", "TEXT"),
+        ("hashtags",      "TEXT"),
+        ("price_value",   "REAL"),
+        ("currency",      "TEXT"),
+        ("location",      "TEXT"),
+    ]:
+        try:
+            c.execute(f"ALTER TABLE items ADD COLUMN {col} {decl}")
+        except Exception:
+            pass  # column already exists
     conn.commit()
     conn.close()
 
@@ -308,93 +319,142 @@ async def get_ratings(token: str = Depends(verify_token)):
     conn.close()
     return items
 
+# ============ PIPELINE JOBS ============
+# Long-running scripts (scrape, train, score…) run as background subprocesses.
+# Output is streamed into JOBS so the web UI can poll /api/job_status and show
+# live progress instead of a fire-and-forget toast.
+
+JOBS: dict = {}            # name -> {status, label, started, finished, returncode, log[]}
+_jobs_lock = threading.Lock()
+_current_job: str | None = None
+
+PY = sys.executable
+
+def _job_running() -> bool:
+    with _jobs_lock:
+        return any(j.get("status") == "running" for j in JOBS.values())
+
+def _job_set(name: str, **kw):
+    with _jobs_lock:
+        JOBS.setdefault(name, {"log": []}).update(kw)
+
+def _job_log(name: str, line: str):
+    with _jobs_lock:
+        job = JOBS.setdefault(name, {"log": []})
+        job["log"].append(line)
+        job["log"] = job["log"][-300:]   # cap memory
+
+def _run_steps(name: str, label: str, steps: list):
+    """Run (step_label, argv) tuples sequentially, streaming output into JOBS[name]."""
+    global _current_job
+    _current_job = name
+    _job_set(name, status="running", label=label, started=time.time(),
+             finished=None, returncode=None, log=[])
+    for step_label, argv in steps:
+        _job_log(name, f"▶ {step_label}")
+        try:
+            proc = subprocess.Popen(
+                argv, cwd=ROOT_DIR,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1,
+            )
+            for line in proc.stdout:
+                _job_log(name, line.rstrip())
+            proc.wait()
+        except Exception as e:
+            _job_log(name, f"error: {e}")
+            _job_set(name, status="error", finished=time.time(), returncode=-1)
+            return
+        if proc.returncode != 0:
+            _job_log(name, f"✗ {step_label} failed (exit {proc.returncode})")
+            _job_set(name, status="error", finished=time.time(), returncode=proc.returncode)
+            return
+        _job_log(name, f"✓ {step_label} done")
+    _job_set(name, status="done", finished=time.time(), returncode=0)
+
+def _start_job(background_tasks: BackgroundTasks, name: str, label: str, steps: list):
+    if _job_running():
+        return {"status": "busy"}
+    background_tasks.add_task(_run_steps, name, label, steps)
+    return {"status": "started", "job": name}
+
+@app.get("/api/job_status")
+async def job_status(token: str = Depends(verify_token)):
+    """Return the most recently started job plus a summary of all jobs."""
+    with _jobs_lock:
+        current = JOBS.get(_current_job) if _current_job else None
+        current_copy = dict(current) if current else None
+        if current_copy is not None:
+            current_copy = {**current_copy, "name": _current_job}
+        summary = {n: {"status": j.get("status"), "label": j.get("label"),
+                       "finished": j.get("finished")} for n, j in JOBS.items()}
+    return {"current": current_copy, "jobs": summary, "running": _job_running()}
+
+@app.post("/api/scrape")
+async def trigger_scrape(background_tasks: BackgroundTasks, token: str = Depends(verify_token)):
+    """Full scrape pipeline: scrape Vinted → import to DB → compute embeddings."""
+    steps = [
+        ("Scrape Vinted",      [PY, os.path.join(ROOT_DIR, "vinted_scraper.py")]),
+        ("Import to database", [PY, os.path.join(ROOT_DIR, "db_creator.py")]),
+        ("Compute embeddings", [PY, os.path.join(ROOT_DIR, "compute_embeddings.py")]),
+    ]
+    return _start_job(background_tasks, "scrape", "Scraping", steps)
+
 @app.post("/api/retrain")
 async def trigger_retrain(background_tasks: BackgroundTasks, token: str = Depends(verify_token)):
-    background_tasks.add_task(_retrain)
-    return {"status": "retraining_started"}
+    return _start_job(background_tasks, "retrain", "Retrain + rescore", [
+        ("Train MLP",   [PY, os.path.join(ROOT_DIR, "train_mlp.py")]),
+        ("Score items", [PY, os.path.join(ROOT_DIR, "score_with_mlp.py")]),
+    ])
+
+@app.post("/api/score_mlp")
+async def trigger_score_mlp(background_tasks: BackgroundTasks, token: str = Depends(verify_token)):
+    return _start_job(background_tasks, "score_mlp", "Score (MLP)", [
+        ("Score items", [PY, os.path.join(ROOT_DIR, "score_with_mlp.py")]),
+    ])
 
 @app.post("/api/rescore")
 async def trigger_rescore(background_tasks: BackgroundTasks, token: str = Depends(verify_token)):
-    background_tasks.add_task(_rescore)
-    return {"status": "rescore_started"}
+    return _start_job(background_tasks, "rescore", "Rescore (legacy)", [
+        ("Similarity scorer", [PY, os.path.join(ROOT_DIR, "ai_style_scorer.py"),
+                               "--scraped-items", os.path.join(ROOT_DIR, "vinted_items.json"),
+                               "--output", os.path.join(ROOT_DIR, "scored_items.json")]),
+    ])
 
 @app.post("/api/build_blocklist")
 async def trigger_build_blocklist(background_tasks: BackgroundTasks, token: str = Depends(verify_token)):
-    background_tasks.add_task(_build_blocklist)
-    return {"status": "blocklist_build_started"}
+    return _start_job(background_tasks, "blocklist", "Build blocklist", [
+        ("Build Polish blocklist", [PY, os.path.join(ROOT_DIR, "build_polish_blocklist.py")]),
+    ])
 
 @app.post("/api/check_sold")
 async def trigger_check_sold(background_tasks: BackgroundTasks, token: str = Depends(verify_token)):
     """Check which items are sold by fetching their Vinted URLs."""
+    if _job_running():
+        return {"status": "busy"}
     background_tasks.add_task(_check_sold)
-    return {"status": "check_sold_started"}
+    return {"status": "started", "job": "sold"}
 
 def _retrain():
-    train_script = os.path.join(ROOT_DIR, "train_mlp.py")
-    if not os.path.exists(train_script):
-        print("Retrain skipped: train_mlp.py not found")
-        return
-    print("Training MLP...")
-    result = subprocess.run(
-        [sys.executable, train_script],
-        cwd=ROOT_DIR, capture_output=True, text=True
-    )
-    print(result.stdout)
-    if result.returncode != 0:
-        print(f"Training error: {result.stderr}")
-        return
-    # Auto-score immediately after training
-    emb_path = os.path.join(ROOT_DIR, "embeddings.npz")
-    mlp_path = os.path.join(ROOT_DIR, "style_mlp.pt")
-    if os.path.exists(emb_path) and os.path.exists(mlp_path):
-        print("Scoring items with new MLP...")
-        result = subprocess.run(
-            [sys.executable, os.path.join(ROOT_DIR, "score_with_mlp.py")],
-            cwd=ROOT_DIR, capture_output=True, text=True
-        )
-        print(result.stdout)
-        if result.returncode != 0:
-            print(f"Scoring error: {result.stderr}")
-    else:
-        print("Scoring skipped: embeddings.npz or style_mlp.pt missing")
-
-def _rescore():
-    # Legacy similarity scorer — kept as fallback
-    try:
-        result = subprocess.run(
-            [sys.executable, os.path.join(ROOT_DIR, "ai_style_scorer.py"),
-             "--scraped-items", os.path.join(ROOT_DIR, "vinted_items.json"),
-             "--output", os.path.join(ROOT_DIR, "scored_items.json")],
-            cwd=ROOT_DIR, capture_output=True, text=True
-        )
-        print(result.stdout)
-        if result.returncode != 0:
-            print(f"Rescore error: {result.stderr}")
-    except Exception as e:
-        print(f"Rescore error: {e}")
-
-
-def _build_blocklist():
-    try:
-        result = subprocess.run(
-            ["python", os.path.join(ROOT_DIR, "build_polish_blocklist.py")],
-            cwd=ROOT_DIR, capture_output=True, text=True
-        )
-        print(result.stdout)
-        if result.returncode != 0:
-            print(f"Blocklist error: {result.stderr}")
-    except Exception as e:
-        print(f"Blocklist error: {e}")
+    """Used by the auto-retrain trigger on the /api/rate path."""
+    _run_steps("retrain", "Retrain + rescore", [
+        ("Train MLP",   [PY, os.path.join(ROOT_DIR, "train_mlp.py")]),
+        ("Score items", [PY, os.path.join(ROOT_DIR, "score_with_mlp.py")]),
+    ])
 
 def _check_sold():
     """Fetch each item's Vinted URL and mark sold if it 404s or redirects away."""
     import urllib.request
     import urllib.error
+    global _current_job
+    _current_job = "sold"
+    _job_set("sold", status="running", label="Check sold", started=time.time(),
+             finished=None, returncode=None, log=[])
     conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT id, url FROM items WHERE url IS NOT NULL AND (sold IS NULL)")
     rows = c.fetchall()
-    print(f"🔍 Checking {len(rows)} items for sold status...")
+    _job_log("sold", f"🔍 Checking {len(rows)} items for sold status...")
     updated = 0
     for item_id, url in rows:
         if not url:
@@ -415,7 +475,8 @@ def _check_sold():
             pass
     conn.commit()
     conn.close()
-    print(f"✅ Sold check done — updated {updated} items")
+    _job_log("sold", f"✅ Sold check done — updated {updated} items")
+    _job_set("sold", status="done", finished=time.time(), returncode=0)
 
 SCRAPER_CONFIG_FILE = os.path.join(ROOT_DIR, "scraper_config.txt")
 

@@ -1,34 +1,71 @@
-import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { fetchStats, triggerRetrain, triggerRescore, triggerBuildBlocklist, triggerCheckSold } from '../api/client';
+import {
+  fetchStats, triggerScrape, triggerRetrain, triggerScoreMlp,
+  triggerBuildBlocklist, triggerCheckSold, fetchJobStatus,
+} from '../api/client';
 import { useToast } from '../components/Toast';
+import { useLang } from '../i18n';
+
+const TRIGGERS = {
+  scrape:    triggerScrape,
+  retrain:   triggerRetrain,
+  score:     triggerScoreMlp,
+  sold:      triggerCheckSold,
+  blocklist: triggerBuildBlocklist,
+};
 
 export default function ProfileScreen() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(null);
+  const [job, setJob] = useState(null);   // live job status { name, status, label, log[] }
+  const pollRef = useRef(null);
   const toast = useToast();
+  const { t } = useLang();
 
+  function refreshStats() {
+    fetchStats().then(setStats).catch(() => {});
+  }
+
+  // On mount: load stats + resume showing any job already running on the server.
   useEffect(() => {
-    fetchStats()
-      .then(setStats)
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    fetchStats().then(setStats).catch(() => {}).finally(() => setLoading(false));
+    fetchJobStatus().then(s => {
+      if (s.running && s.current) { setJob(s.current); setRunning(s.current.name); startPolling(); }
+    }).catch(() => {});
+    return () => clearInterval(pollRef.current);
   }, []);
 
+  function startPolling() {
+    clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const s = await fetchJobStatus();
+        setJob(s.current);
+        if (!s.running) {
+          clearInterval(pollRef.current);
+          setRunning(null);
+          if (s.current?.status === 'done') { toast(`${s.current.label} finished`, 'success'); refreshStats(); }
+          else if (s.current?.status === 'error') toast(`${s.current.label} failed — see log`, 'error');
+        }
+      } catch { /* keep polling */ }
+    }, 1500);
+  }
+
   async function run(action, label) {
+    if (running) return;
     setRunning(action);
+    setJob({ name: action, status: 'running', label, log: ['Starting…'] });
     try {
-      if (action === 'retrain') await triggerRetrain();
-      else if (action === 'rescore') await triggerRescore();
-      else if (action === 'blocklist') await triggerBuildBlocklist();
-      else if (action === 'sold') await triggerCheckSold();
-      toast(`${label} started!`, 'success');
+      const res = await TRIGGERS[action]();
+      if (res?.status === 'busy') { toast('Another job is already running', 'error'); setRunning(null); return; }
+      startPolling();
     } catch {
-      toast(`${label} failed`, 'error');
+      toast(`${label} failed to start`, 'error');
+      setRunning(null);
     }
-    setRunning(null);
   }
 
   const navigate = useNavigate();
@@ -44,10 +81,11 @@ export default function ProfileScreen() {
   ];
 
   const actions = [
-    { id: 'retrain',   label: 'Retrain + rescore', desc: 'Train MLP on ratings, then re-rank all items', icon: '🧠', color: '#7c6cf8' },
-    { id: 'rescore',   label: 'Rescore (legacy)',   desc: 'Similarity-based scoring, no MLP needed',     icon: '🔄', color: '#22c55e' },
-    { id: 'sold',      label: 'Check sold',         desc: 'Mark unavailable items',                      icon: '🏷️', color: '#ef4444' },
-    { id: 'blocklist', label: 'Build blocklist',    desc: 'Update Polish filter',                        icon: '🚫', color: '#f59e0b' },
+    { id: 'scrape',    label: t('act.scrape'),    desc: t('act.scrape.desc'),    icon: '🛍️', color: '#06b6d4' },
+    { id: 'retrain',   label: t('act.retrain'),   desc: t('act.retrain.desc'),   icon: '🧠', color: '#7c6cf8' },
+    { id: 'score',     label: t('act.score'),     desc: t('act.score.desc'),     icon: '✨', color: '#22c55e' },
+    { id: 'sold',      label: t('act.sold'),      desc: t('act.sold.desc'),      icon: '🏷️', color: '#ef4444' },
+    { id: 'blocklist', label: t('act.blocklist'), desc: t('act.blocklist.desc'), icon: '🚫', color: '#f59e0b' },
   ];
 
   return (
@@ -55,7 +93,7 @@ export default function ProfileScreen() {
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {/* Header */}
         <div style={{ padding: '16px 20px 20px', display: 'flex', alignItems: 'center' }}>
-          <span style={{ fontFamily: 'Syne', fontWeight: 800, fontSize: 22, color: 'var(--text)', letterSpacing: '-0.5px', flex: 1 }}>Profile</span>
+          <span style={{ fontFamily: 'Syne', fontWeight: 800, fontSize: 22, color: 'var(--text)', letterSpacing: '-0.5px', flex: 1 }}>{t('profile.title')}</span>
           <button
             onClick={() => navigate('/config')}
             title="Scraper settings"
@@ -69,7 +107,7 @@ export default function ProfileScreen() {
 
         {/* Stats grid */}
         <div style={{ padding: '0 16px', marginBottom: 28 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: '0.08em', color: 'var(--text-3)', marginBottom: 10, textTransform: 'uppercase' }}>Stats</div>
+          <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: '0.08em', color: 'var(--text-3)', marginBottom: 10, textTransform: 'uppercase' }}>{t('sec.stats')}</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
             {statItems.map((s, i) => (
               <motion.div
@@ -104,7 +142,7 @@ export default function ProfileScreen() {
         {/* Score histogram placeholder */}
         {stats?.score_histogram && (
           <div style={{ padding: '0 16px', marginBottom: 28 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: '0.08em', color: 'var(--text-3)', marginBottom: 10, textTransform: 'uppercase' }}>Score distribution</div>
+            <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: '0.08em', color: 'var(--text-3)', marginBottom: 10, textTransform: 'uppercase' }}>{t('sec.scoredist')}</div>
             <div style={{ background: 'var(--bg-card)', borderRadius: 14, border: '1px solid var(--border)', padding: '16px 12px', display: 'flex', alignItems: 'flex-end', gap: 4, height: 80 }}>
               {stats.score_histogram.map((v, i) => (
                 <div key={i} style={{ flex: 1, background: 'var(--accent)', borderRadius: 3, opacity: 0.7, height: `${Math.max(4, v)}%` }} />
@@ -115,7 +153,38 @@ export default function ProfileScreen() {
 
         {/* Pipeline actions */}
         <div style={{ padding: '0 16px 20px' }}>
-          <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: '0.08em', color: 'var(--text-3)', marginBottom: 10, textTransform: 'uppercase' }}>Pipeline</div>
+          <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: '0.08em', color: 'var(--text-3)', marginBottom: 10, textTransform: 'uppercase' }}>{t('sec.pipeline')}</div>
+
+          {/* Live job progress */}
+          <AnimatePresence>
+            {job && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                style={{ overflow: 'hidden', marginBottom: 12 }}
+              >
+                <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14, padding: '12px 14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                    {job.status === 'running'
+                      ? <Spinner />
+                      : <span style={{ fontSize: 16 }}>{job.status === 'done' ? '✅' : '⚠️'}</span>}
+                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', flex: 1 }}>{job.label}</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{job.status}</span>
+                  </div>
+                  <div style={{
+                    background: 'var(--surface)', borderRadius: 8, padding: '8px 10px',
+                    fontFamily: 'monospace', fontSize: 11, lineHeight: 1.5,
+                    color: 'var(--text-2)', maxHeight: 120, overflowY: 'auto',
+                    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                  }}>
+                    {(job.log || []).slice(-8).join('\n') || '…'}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {actions.map((a, i) => (
               <motion.button

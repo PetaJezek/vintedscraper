@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import torch
 from PIL import Image
 from sentence_transformers import SentenceTransformer
-from transformers import CLIPProcessor, CLIPModel
+from transformers import CLIPProcessor, CLIPModel, logging as hf_logging
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -81,8 +81,9 @@ def load_image_model(model_choice: str):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     if config['type'] == 'huggingface':
+        hf_logging.set_verbosity_error()
         model = CLIPModel.from_pretrained(config['name']).to(device)
-        processor = CLIPProcessor.from_pretrained(config['name'])
+        processor = CLIPProcessor.from_pretrained(config['name'], use_fast=True)
         return model, processor, device, 'huggingface'
 
     model = SentenceTransformer(config['name'], device=device)

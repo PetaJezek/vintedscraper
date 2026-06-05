@@ -44,7 +44,7 @@ USER_AGENT = (
 )
 
 MAX_PAGES_PER_URL = 20                  # catalog pages per search URL
-DEBUG_LIMIT       = 10                  # max items to process (None = unlimited)
+DEBUG_LIMIT       = None                # max items to save per URL (None = unlimited, bounded by MAX_PAGES_PER_URL)
 CONCURRENT_ITEMS  = 2                   # parallel item-page workers
 RATE_LIMIT_PAUSE  = 40                  # seconds to sleep on rate-limit
 CATALOG_WAIT_MS   = 3000               # ms to wait after catalog page loads
@@ -362,6 +362,118 @@ def _section_summary(state: ScraperState) -> str:
 def extract_item_id(url: str) -> str | None:
     m = re.search(r'/items/(\d+)', url)
     return m.group(1) if m else None
+
+
+# ── Item data extraction ───────────────────────────────────────────────────────
+# Vinted embeds a clean schema.org Product blob in every item page. It carries
+# title, full description (incl. seller hashtags), brand, price, condition,
+# category path and colour — far more reliable than scraping hashed CSS classes.
+# Size + condition are read from the rendered details panel as a fallback.
+#
+# Vinted serves the page in the account/locale language, so the detail labels
+# are NOT always Czech. We match a set of localized labels (cz/sk/en/de/pl/…)
+# and bound each value with the same multilingual label set.
+
+_LD_JSON_RE = re.compile(r'<script type="application/ld\+json">(.*?)</script>', re.DOTALL)
+_HASHTAG_RE = re.compile(r'#(\w+)', re.UNICODE)
+
+# Labels by field, across the languages Vinted commonly serves.
+_SIZE_LABELS = ["Velikost", "Veľkosť", "Size", "Größe", "Rozmiar", "Maat", "Taille", "Talla", "Taglia", "Méret"]
+_COND_LABELS = ["Stav", "Condition", "Zustand", "Stan", "Staat", "État", "Estado", "Condizione", "Állapot"]
+# All labels that can follow a value — used to know where a value ends.
+_BOUNDARY_LABELS = _SIZE_LABELS + _COND_LABELS + [
+    "Rozměry", "Dimensions", "Maße", "Wymiary",            # dimensions
+    "Barva", "Farba", "Colour", "Color", "Farbe", "Kolor",  # colour
+    "Materiál", "Material", "Materiale", "Materiał",        # material
+    "Vystaveno", "Uploaded", "Hochgeladen", "Dodane",       # uploaded
+    "Kategorie", "Category", "Kategoria",                   # category
+    "Značka", "Brand", "Marke", "Marka",                    # brand
+    "Nahlásit", "Report", "Melden", "Zgłoś",                # report
+]
+
+
+def _extract_hashtags(desc: str) -> list[str]:
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for tag in _HASHTAG_RE.findall(desc):
+        tl = tag.lower()
+        if tl not in seen:
+            seen.add(tl)
+            uniq.append(tl)
+    return uniq
+
+
+def _detail_field(text: str, labels: list[str]) -> str | None:
+    """Pull '<label> <value>' from the rendered details panel for the first of
+    `labels` that appears, bounding the value at the next known label, a newline,
+    or 40 chars — so it stays robust regardless of page language."""
+    for label in labels:
+        i = text.find(label)
+        if i < 0:
+            continue
+        rest = text[i + len(label):].lstrip()
+        end = min(len(rest), 40)
+        nl = rest.find("\n")
+        if 0 <= nl < end:
+            end = nl
+        for stop in _BOUNDARY_LABELS:
+            if stop == label:
+                continue
+            j = rest.find(stop)
+            if 0 <= j < end:
+                end = j
+        value = rest[:end].strip()
+        if value:
+            return value
+    return None
+
+
+def parse_item_fields(html: str, rendered_text: str) -> dict:
+    """Extract item metadata from page HTML (ld+json) and rendered text (details panel)."""
+    data: dict = {}
+
+    m = _LD_JSON_RE.search(html)
+    if m:
+        try:
+            ld = json.loads(m.group(1))
+        except json.JSONDecodeError:
+            ld = {}
+        if ld.get("name"):
+            data["title"] = ld["name"].strip()
+        desc = (ld.get("description") or "").strip()
+        if desc:
+            tags = _extract_hashtags(desc)
+            if tags:
+                data["hashtags"] = tags
+            data["description"] = desc[:1500]
+        brand = ld.get("brand")
+        if isinstance(brand, dict) and brand.get("name"):
+            data["brand"] = brand["name"].strip()
+        if ld.get("color"):
+            data["color"] = ld["color"].strip()
+        if ld.get("category"):
+            data["category_path"] = ld["category"].strip()
+        if ld.get("image"):
+            data["ld_image"] = ld["image"]
+        offers = ld.get("offers")
+        if isinstance(offers, dict):
+            if offers.get("price") is not None:
+                data["price_value"] = offers["price"]
+                data["currency"] = offers.get("priceCurrency", "")
+                data["price"] = f"{offers['price']} {offers.get('priceCurrency', '')}".strip()
+            cond = offers.get("itemCondition")
+            if cond:
+                data["condition"] = cond.split("/")[-1].replace("Condition", "")
+
+    size = _detail_field(rendered_text, _SIZE_LABELS)
+    if size:
+        data["size"] = size
+    if "condition" not in data:
+        cond = _detail_field(rendered_text, _COND_LABELS)
+        if cond:
+            data["condition"] = cond
+
+    return data
 
 
 def load_seen_ids() -> set:
@@ -687,8 +799,9 @@ async def scrape_item(
                 _set_message(state, random.choice(_POLISH_MSGS))
                 return None
 
+        html = await page.content()
         if SAVE_PASSED_HTML:
-            save_debug_html(f"passed_{item_id}.html", await page.content())
+            save_debug_html(f"passed_{item_id}.html", html)
 
         # ── Extract item data ──────────────────────────────────────────────
         data: dict = {
@@ -697,56 +810,31 @@ async def scrape_item(
             "scraped_at": datetime.now().isoformat(),
             "tag":        url_tag,
         }
+        # Most fields come from the embedded schema.org JSON; size/condition
+        # fall back to the rendered details panel (page_text = body.innerText).
+        data.update(parse_item_fields(html, page_text))
 
-        h1 = await page.query_selector("h1")
-        if h1:
-            data["title"] = (await h1.inner_text()).strip()
-
-        for sel in ["[data-testid='item-price']", "[class*='price']"]:
-            el = await page.query_selector(sel)
-            if el:
-                data["price"] = (await el.inner_text()).strip()
-                break
-
-        for sel in ["[data-testid='item-brand']", "[class*='brand']"]:
-            el = await page.query_selector(sel)
-            if el:
-                data["brand"] = (await el.inner_text()).strip()
-                break
-
-        for sel in ["[data-testid='item-size']", "[class*='size']"]:
-            el = await page.query_selector(sel)
-            if el:
-                data["size"] = (await el.inner_text()).strip()
-                break
-        if "size" not in data:
-            m = re.search(r'(?:size|velikost)[:\s]+([A-Z0-9/]+)', page_text, re.IGNORECASE)
-            if m:
-                data["size"] = m.group(1)
-
-        for sel in ["[data-testid='item-description']", "[class*='description']"]:
-            el = await page.query_selector(sel)
-            if el:
-                data["description"] = (await el.inner_text()).strip()[:500]
-                break
-
+        # Location isn't in the schema.org blob — try the seller/location selectors.
         for sel in ["[data-testid*='location']", "[class*='location']"]:
             el = await page.query_selector(sel)
             if el:
                 data["location"] = (await el.inner_text()).strip()
                 break
 
+        ld_image = data.pop("ld_image", None)
         img_url = catalog_item.get("image_url")
         if IMAGE_SCRAPE_MODE == 'item' or not img_url:
-            for sel in [
-                "img[data-testid='item-photo']",
-                "img[class*='photo']",
-                "main img",
-            ]:
-                img_el = await page.query_selector(sel)
-                if img_el:
-                    img_url = await img_el.get_attribute("src")
-                    break
+            img_url = ld_image or img_url
+            if not img_url:
+                for sel in [
+                    "img[data-testid='item-photo']",
+                    "img[class*='photo']",
+                    "main img",
+                ]:
+                    img_el = await page.query_selector(sel)
+                    if img_el:
+                        img_url = await img_el.get_attribute("src")
+                        break
 
         if img_url:
             local_path = await download_image(session, img_url, item_id, state)

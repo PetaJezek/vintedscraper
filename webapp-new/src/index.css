@@ -32,8 +32,25 @@
   --content-pb: 0px;
 }
 
+/* Light theme variables — shared by the manual toggle and the OS-preference fallback */
+:root[data-theme="light"] {
+  --bg: #f4f4f8;
+  --bg-card: #ffffff;
+  --bg-card-2: #f8f8fc;
+  --surface: #ebebf4;
+  --surface-2: #e0e0ee;
+  --border: rgba(0,0,0,0.08);
+  --border-active: rgba(0,0,0,0.16);
+  --text: #0f0f1a;
+  --text-2: #5a5a7a;
+  --text-3: #9898b8;
+  --accent: #6254e8;
+  --accent-2: #7c6cf8;
+}
+
+/* When the user hasn't picked a theme, follow the OS preference */
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme]) {
     --bg: #f4f4f8;
     --bg-card: #ffffff;
     --bg-card-2: #f8f8fc;

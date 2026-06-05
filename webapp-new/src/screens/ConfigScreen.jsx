@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { fetchConfig, saveConfig } from '../api/client';
 import { useToast } from '../components/Toast';
+import { getTheme, applyTheme } from '../theme';
+import { useLang, LANGS } from '../i18n';
 
 // Strip junk params Vinted adds that expire and break scraping
 function cleanVintedUrl(raw) {
@@ -18,6 +20,7 @@ function cleanVintedUrl(raw) {
 export default function ConfigScreen() {
   const navigate  = useNavigate();
   const toast     = useToast();
+  const { t, lang, setLang } = useLang();
   const [cfg, setCfg]       = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
@@ -25,7 +28,13 @@ export default function ConfigScreen() {
   const [addUrl, setAddUrl]   = useState('');
   const [addLabel, setAddLabel] = useState('');
   const [showAdd, setShowAdd] = useState(false);
+  const [theme, setTheme]     = useState(getTheme());
   const addInputRef = useRef(null);
+
+  function changeTheme(t) {
+    setTheme(t);
+    applyTheme(t);
+  }
 
   useEffect(() => {
     fetchConfig()
@@ -88,7 +97,7 @@ export default function ConfigScreen() {
           </svg>
         </button>
         <span style={{ fontFamily: 'Syne', fontWeight: 800, fontSize: 22, color: 'var(--text)', letterSpacing: '-0.5px', flex: 1 }}>
-          Scraper settings
+          {t('setup.title')}
         </span>
         <motion.button
           onClick={handleSave}
@@ -100,48 +109,68 @@ export default function ConfigScreen() {
             background: dirty ? 'var(--accent)' : 'var(--surface)',
           }}
         >
-          {saving ? 'Saving…' : 'Save'}
+          {saving ? t('setup.saving') : t('setup.save')}
         </motion.button>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 32px' }}>
+      {/* Extra bottom padding so the sticky "Save changes" bar never covers the
+          last URLs or the Add-URL button — the list stays scrollable above it. */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px', paddingBottom: 140 }}>
+
+        {/* ── Appearance ───────────────────────────────────────────────── */}
+        <Section label={t('sec.appearance')}>
+          <Row label={t('row.theme')} desc={t('row.theme.desc')}>
+            <SegmentedPick
+              value={theme}
+              options={[{ value: 'dark', label: t('opt.dark') }, { value: 'light', label: t('opt.light') }]}
+              onChange={changeTheme}
+            />
+          </Row>
+          <Row label={t('row.language')} desc={t('row.language.desc')}>
+            <SegmentedPick
+              value={lang}
+              options={LANGS.map(l => ({ value: l.code, label: l.label }))}
+              onChange={setLang}
+            />
+          </Row>
+        </Section>
 
         {/* ── Scraper settings ─────────────────────────────────────────── */}
-        <Section label="Scraper">
+        <Section label={t('sec.scraper')}>
 
-          <Row label="Filter Polish sellers"
-               desc="Skip items where seller is located in Poland">
+          <Row label={t('row.polish')}
+               desc={t('row.polish.desc')}>
             <Toggle value={cfg.filter_polish} onChange={v => update({ filter_polish: v })} />
           </Row>
 
-          <Row label="Max pages per URL"
-               desc="Catalog pages fetched per search URL (more = slower)">
+          <Row label={t('row.maxpages')}
+               desc={t('row.maxpages.desc')}>
             <Stepper value={cfg.max_pages} min={1} max={100} onChange={v => update({ max_pages: v })} />
           </Row>
 
-          <Row label="Concurrent workers"
-               desc="Parallel item-page fetches (lower = safer, less likely to get blocked)">
+          <Row label={t('row.workers')}
+               desc={t('row.workers.desc')}>
             <Stepper value={cfg.concurrent_items} min={1} max={6} onChange={v => update({ concurrent_items: v })} />
           </Row>
 
-          <Row label="Rate-limit pause (s)"
-               desc="Seconds to wait when Vinted blocks you">
+          <Row label={t('row.ratelimit')}
+               desc={t('row.ratelimit.desc')}>
             <Stepper value={cfg.rate_limit_pause} min={10} max={300} step={5} onChange={v => update({ rate_limit_pause: v })} />
           </Row>
 
-          <Row label="Image mode"
-               desc={cfg.image_mode === 'catalog' ? 'Thumbnail from search page — fast' : 'Full image from item page — slower but higher quality'}>
+          <Row label={t('row.imagemode')}
+               desc={cfg.image_mode === 'catalog' ? t('row.imagemode.catalog') : t('row.imagemode.item')}>
             <SegmentedPick
               value={cfg.image_mode}
-              options={[{ value: 'catalog', label: 'Catalog' }, { value: 'item', label: 'Item page' }]}
+              options={[{ value: 'catalog', label: t('opt.catalog') }, { value: 'item', label: t('opt.itempage') }]}
               onChange={v => update({ image_mode: v })}
             />
           </Row>
         </Section>
 
         {/* ── Model settings ───────────────────────────────────────────── */}
-        <Section label="Model">
-          <Row label={`FashionCLIP weight  α = ${cfg.alpha.toFixed(2)}`}
+        <Section label={t('sec.model')}>
+          <Row label={`${t('row.alpha')}  α = ${cfg.alpha.toFixed(2)}`}
                desc={`FashionCLIP ${Math.round(cfg.alpha * 100)}%  ·  DINOv2 ${Math.round((1 - cfg.alpha) * 100)}%`}>
             <input
               type="range" min="0" max="1" step="0.05"
@@ -153,14 +182,13 @@ export default function ConfigScreen() {
         </Section>
 
         {/* ── Search URLs ──────────────────────────────────────────────── */}
-        <Section label={`Search URLs  (${(cfg.urls || []).length})`}>
+        <Section label={`${t('sec.urls')}  (${(cfg.urls || []).length})`}>
 
           <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.6, marginBottom: 14, padding: '10px 12px', background: 'var(--surface)', borderRadius: 10 }}>
-            <strong style={{ color: 'var(--text)' }}>How to get a URL</strong><br />
-            1. Open vinted.cz, set your filters (size, category, price…)<br />
-            2. Copy the URL from the address bar<br />
-            3. Paste it below — expired params are stripped automatically<br />
-            <span style={{ color: 'var(--text-3)', fontSize: 11 }}>CZ: Otevři vinted.cz, nastav filtry, zkopíruj URL z adresního řádku, vlož níže.</span>
+            <strong style={{ color: 'var(--text)' }}>{t('urls.help.title')}</strong><br />
+            1. {t('urls.help.1')}<br />
+            2. {t('urls.help.2')}<br />
+            3. {t('urls.help.3')}
           </div>
 
           <AnimatePresence initial={false}>
@@ -192,22 +220,22 @@ export default function ConfigScreen() {
                 <div style={styles.addForm}>
                   <input
                     ref={addInputRef}
-                    placeholder="Paste vinted.cz URL…"
+                    placeholder={t('urls.placeholder')}
                     value={addUrl}
                     onChange={e => setAddUrl(e.target.value)}
                     onPaste={handleUrlPaste}
                     style={styles.textInput}
                   />
                   <input
-                    placeholder="Label (optional, e.g. XL jackets)"
+                    placeholder={t('urls.labelph')}
                     value={addLabel}
                     onChange={e => setAddLabel(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && addUrlEntry()}
                     style={{ ...styles.textInput, marginTop: 8 }}
                   />
                   <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                    <button onClick={addUrlEntry} style={styles.addConfirmBtn}>Add</button>
-                    <button onClick={() => { setShowAdd(false); setAddUrl(''); setAddLabel(''); }} style={styles.cancelBtn}>Cancel</button>
+                    <button onClick={addUrlEntry} style={styles.addConfirmBtn}>{t('btn.add')}</button>
+                    <button onClick={() => { setShowAdd(false); setAddUrl(''); setAddLabel(''); }} style={styles.cancelBtn}>{t('btn.cancel')}</button>
                   </div>
                 </div>
               </motion.div>
@@ -216,7 +244,7 @@ export default function ConfigScreen() {
 
           {!showAdd && (
             <button onClick={() => setShowAdd(true)} style={styles.addUrlBtn}>
-              + Add URL
+              {t('urls.add')}
             </button>
           )}
         </Section>
@@ -232,9 +260,9 @@ export default function ConfigScreen() {
             exit={{ y: 80 }}
             style={styles.stickyBar}
           >
-            <span style={{ fontSize: 13, color: 'var(--text-2)' }}>Unsaved changes</span>
+            <span style={{ fontSize: 13, color: 'var(--text-2)' }}>{t('setup.unsaved')}</span>
             <button onClick={handleSave} disabled={saving} style={styles.saveBtnLarge}>
-              {saving ? 'Saving…' : 'Save changes'}
+              {saving ? t('setup.saving') : t('setup.savechanges')}
             </button>
           </motion.div>
         )}

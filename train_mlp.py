@@ -23,7 +23,8 @@ from mlp_model import StyleMLP
 BASE_DIR = Path(__file__).resolve().parent
 
 # ── config ────────────────────────────────────────────────────────────────────
-ALPHA       = 0.5    # FashionCLIP weight; DINOv2 gets (1 - ALPHA)
+ALPHA       = 0.5    # FashionCLIP image weight; DINOv2 gets (1 - ALPHA)
+TEXT_WEIGHT = 0.5    # weight on the FashionCLIP text vector (if present in npz)
 EPOCHS      = 150
 LR          = 3e-4
 BATCH_SIZE  = 32
@@ -84,13 +85,20 @@ def build_dataset(alpha: float):
     emb_ids   = data['item_ids'].tolist()
     clip_embs = F.normalize(torch.tensor(data['clip_embs'], dtype=torch.float32), p=2, dim=1)
     dino_embs = F.normalize(torch.tensor(data['dino_embs'], dtype=torch.float32), p=2, dim=1)
-    combined  = torch.cat([alpha * clip_embs, (1 - alpha) * dino_embs], dim=1)  # (N, 1792)
+
+    branches = [alpha * clip_embs, (1 - alpha) * dino_embs]
+    has_text = 'text_embs' in data.files
+    if has_text:
+        text_embs = F.normalize(torch.tensor(data['text_embs'], dtype=torch.float32), p=2, dim=1)
+        branches.append(TEXT_WEIGHT * text_embs)
+    combined = torch.cat(branches, dim=1)
+    n_visual = combined.shape[1]
 
     X, y = [], []
     for i, item_id in enumerate(emb_ids):
         if item_id in ratings:
             cat_vec = category_onehot(tags.get(item_id))
-            X.append(torch.cat([combined[i], cat_vec]))   # 1792 + 10 = 1802
+            X.append(torch.cat([combined[i], cat_vec]))
             y.append(TARGETS[ratings[item_id]])
 
     missing = sum(1 for iid in ratings if iid not in set(emb_ids))
@@ -102,7 +110,9 @@ def build_dataset(alpha: float):
 
     X = torch.stack(X)
     y = torch.tensor(y, dtype=torch.float32)
-    print(f"Dataset:  {len(X)} items  |  embedding dim: {X.shape[1]}  (1792 visual + 10 category)")
+    text_note = "image+text" if has_text else "image-only"
+    print(f"Dataset:  {len(X)} items  |  embedding dim: {X.shape[1]}  "
+          f"({n_visual} {text_note} + 10 category)")
     return X, y
 
 

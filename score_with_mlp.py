@@ -46,20 +46,28 @@ def parse_args():
     p.add_argument('--mlp',        default=str(BASE_DIR / 'style_mlp.pt'))
     p.add_argument('--db',         default=str(BASE_DIR / 'webapp' / 'vinted_clothes.db'))
     p.add_argument('--alpha',      type=float, default=0.5,
-                   help='Weight for FashionCLIP; DINOv2 gets (1-alpha). Default 0.5.')
+                   help='Weight for FashionCLIP image; DINOv2 gets (1-alpha). Default 0.5.')
+    p.add_argument('--text-weight', type=float, default=0.5,
+                   help='Weight for the FashionCLIP text vector (if present). Default 0.5. '
+                        'Must match TEXT_WEIGHT used in train_mlp.py.')
     return p.parse_args()
 
 
-def load_combined(embeddings_path: str, alpha: float, tags: dict[str, str]):
+def load_combined(embeddings_path: str, alpha: float, text_weight: float, tags: dict[str, str]):
     """Load embeddings.npz, append category one-hot, return (item_ids, tensor)."""
     data = np.load(embeddings_path)
     item_ids  = data['item_ids'].tolist()
     clip_embs = F.normalize(torch.tensor(data['clip_embs'], dtype=torch.float32), p=2, dim=1)
     dino_embs = F.normalize(torch.tensor(data['dino_embs'], dtype=torch.float32), p=2, dim=1)
-    visual    = torch.cat([alpha * clip_embs, (1.0 - alpha) * dino_embs], dim=1)  # (N, 1792)
+
+    branches = [alpha * clip_embs, (1.0 - alpha) * dino_embs]
+    if 'text_embs' in data.files:
+        text_embs = F.normalize(torch.tensor(data['text_embs'], dtype=torch.float32), p=2, dim=1)
+        branches.append(text_weight * text_embs)
+    visual = torch.cat(branches, dim=1)
 
     cat_vecs  = torch.stack([category_onehot(tags.get(iid)) for iid in item_ids])
-    combined  = torch.cat([visual, cat_vecs], dim=1)   # (N, 1802)
+    combined  = torch.cat([visual, cat_vecs], dim=1)
     return item_ids, combined
 
 
@@ -83,9 +91,10 @@ def main():
 
     print(f'Loading embeddings from {args.embeddings}...')
     tags = load_tags(args.db)
-    item_ids, combined = load_combined(args.embeddings, args.alpha, tags)
-    print(f'  {len(item_ids)} items   embedding dim: {combined.shape[1]}  (1792 visual + 10 category)')
-    print(f'  alpha={args.alpha}  (FashionCLIP {args.alpha:.0%} / DINOv2 {1-args.alpha:.0%})')
+    item_ids, combined = load_combined(args.embeddings, args.alpha, args.text_weight, tags)
+    print(f'  {len(item_ids)} items   embedding dim: {combined.shape[1]}  (visual+text + 10 category)')
+    print(f'  alpha={args.alpha}  (FashionCLIP {args.alpha:.0%} / DINOv2 {1-args.alpha:.0%})  '
+          f'text_weight={args.text_weight}')
 
     print(f'\nLoading MLP from {args.mlp}...')
     mlp = torch.load(args.mlp, map_location=device, weights_only=False)
