@@ -40,7 +40,7 @@ export default function CompareScreen() {
     return (
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', paddingBottom: 'var(--content-pb)' }}>
         <div style={{ padding: '16px 20px 20px', flexShrink: 0 }}>
-          <span style={{ fontFamily: 'Syne', fontWeight: 800, fontSize: 22, color: 'var(--text)', letterSpacing: '-0.5px' }}>Compare</span>
+          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 22, color: 'var(--text)', letterSpacing: '-0.5px' }}>Compare</span>
         </div>
         <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, padding: '0 16px' }}>
           <div className="skeleton" style={{ borderRadius: 16, minHeight: 300 }} />
@@ -55,7 +55,7 @@ export default function CompareScreen() {
     return (
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, paddingBottom: 'var(--content-pb)' }}>
         <div style={{ fontSize: 40 }}>🎉</div>
-        <div style={{ fontFamily: 'Syne', fontSize: 20, fontWeight: 700 }}>All compared!</div>
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>All compared!</div>
         <button onClick={loadPair} style={{ padding: '10px 24px', borderRadius: 20, background: 'var(--accent)', color: '#fff', fontWeight: 600, fontSize: 14 }}>Try again</button>
       </div>
     );
@@ -65,7 +65,7 @@ export default function CompareScreen() {
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', paddingBottom: 'var(--content-pb)' }}>
       {/* Header */}
       <div style={{ padding: '16px 20px 12px', flexShrink: 0 }}>
-        <span style={{ fontFamily: 'Syne', fontWeight: 800, fontSize: 22, color: 'var(--text)', letterSpacing: '-0.5px' }}>Compare</span>
+        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 22, color: 'var(--text)', letterSpacing: '-0.5px' }}>Compare</span>
         <p style={{ fontSize: 13, color: 'var(--text-2)', marginTop: 4 }}>Tap the one you like more</p>
       </div>
 
@@ -100,7 +100,7 @@ export default function CompareScreen() {
             </div>
             <div style={{ padding: '8px 10px', flexShrink: 0 }}>
               <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</div>
-              {item.price && <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent-2)', fontFamily: 'Syne', marginTop: 2 }}>{item.price}</div>}
+              {item.price && <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent-2)', fontFamily: 'var(--font-display)', marginTop: 2 }}>{item.price}</div>}
             </div>
           </motion.button>
         ))}

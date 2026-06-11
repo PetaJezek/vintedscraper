@@ -22,7 +22,7 @@ export default function SwipeScreen() {
         justifyContent: 'space-between',
         flexShrink: 0,
       }}>
-        <span style={{ fontFamily: 'Syne', fontWeight: 800, fontSize: 22, color: 'var(--text)', letterSpacing: '-0.5px' }}>
+        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 22, color: 'var(--text)', letterSpacing: '-0.5px' }}>
           Discover
         </span>
         <button

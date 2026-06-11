@@ -147,7 +147,7 @@ function EmptyState() {
       height: '100%', gap: 16, color: 'var(--text-2)',
     }}>
       <div style={{ fontSize: 52 }}>✨</div>
-      <div style={{ fontFamily: 'Syne', fontSize: 20, fontWeight: 700, color: 'var(--text)' }}>All caught up!</div>
+      <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, color: 'var(--text)' }}>All caught up!</div>
       <div style={{ fontSize: 14, textAlign: 'center', maxWidth: 220 }}>No more items in this queue. Try switching modes or scraping more.</div>
     </div>
   );

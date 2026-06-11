@@ -27,7 +27,7 @@ export default function LikedScreen() {
       {/* Header */}
       <div style={{ padding: '16px 20px 12px', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontFamily: 'Syne', fontWeight: 800, fontSize: 22, color: 'var(--text)', letterSpacing: '-0.5px' }}>
+          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 22, color: 'var(--text)', letterSpacing: '-0.5px' }}>
             Liked
           </span>
           <span style={{ fontSize: 13, color: 'var(--text-3)' }}>{filtered.length} items</span>
@@ -67,7 +67,7 @@ export default function LikedScreen() {
             height: '60vh', gap: 12, color: 'var(--text-2)',
           }}>
             <div style={{ fontSize: 40 }}>💔</div>
-            <div style={{ fontFamily: 'Syne', fontSize: 18, fontWeight: 700, color: 'var(--text)' }}>Nothing here yet</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700, color: 'var(--text)' }}>Nothing here yet</div>
             <div style={{ fontSize: 13 }}>Go swipe some items!</div>
           </div>
         ) : (
@@ -117,7 +117,7 @@ export default function LikedScreen() {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     {item.price && (
-                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent-2)', fontFamily: 'Syne' }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent-2)', fontFamily: 'var(--font-display)' }}>
                         {item.price}
                       </span>
                     )}

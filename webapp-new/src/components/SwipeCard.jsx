@@ -123,7 +123,7 @@ export default function SwipeCard({ item, onSwipe, style, isTop }) {
               fontSize: 12,
               fontWeight: 700,
               color: scoreColor,
-              fontFamily: 'Syne, sans-serif',
+              fontFamily: 'var(--font-display)',
             }}>
               {Math.round(score)}
             </div>
@@ -138,7 +138,7 @@ export default function SwipeCard({ item, onSwipe, style, isTop }) {
             display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start',
             padding: 20,
           }}>
-            <span style={{ fontSize: 36, fontWeight: 800, color: '#fff', fontFamily: 'Syne', textShadow: '0 2px 8px rgba(0,0,0,0.5)', transform: 'rotate(-8deg)', display: 'block' }}>LIKE</span>
+            <span style={{ fontSize: 36, fontWeight: 800, color: '#fff', fontFamily: 'var(--font-display)', textShadow: '0 2px 8px rgba(0,0,0,0.5)', transform: 'rotate(-8deg)', display: 'block' }}>LIKE</span>
           </motion.div>
 
           <motion.div style={{
@@ -149,7 +149,7 @@ export default function SwipeCard({ item, onSwipe, style, isTop }) {
             display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end',
             padding: 20,
           }}>
-            <span style={{ fontSize: 36, fontWeight: 800, color: '#fff', fontFamily: 'Syne', textShadow: '0 2px 8px rgba(0,0,0,0.5)', transform: 'rotate(8deg)', display: 'block' }}>NOPE</span>
+            <span style={{ fontSize: 36, fontWeight: 800, color: '#fff', fontFamily: 'var(--font-display)', textShadow: '0 2px 8px rgba(0,0,0,0.5)', transform: 'rotate(8deg)', display: 'block' }}>NOPE</span>
           </motion.div>
 
           <motion.div style={{
@@ -160,7 +160,7 @@ export default function SwipeCard({ item, onSwipe, style, isTop }) {
             display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
             padding: 20,
           }}>
-            <span style={{ fontSize: 32, fontWeight: 800, color: '#fff', fontFamily: 'Syne', textShadow: '0 2px 8px rgba(0,0,0,0.5)' }}>⭐ SUPER</span>
+            <span style={{ fontSize: 32, fontWeight: 800, color: '#fff', fontFamily: 'var(--font-display)', textShadow: '0 2px 8px rgba(0,0,0,0.5)' }}>⭐ SUPER</span>
           </motion.div>
 
           {/* Bottom gradient for text readability */}
@@ -189,7 +189,7 @@ export default function SwipeCard({ item, onSwipe, style, isTop }) {
               <span style={{
                 background: 'var(--accent)', color: '#fff',
                 borderRadius: 20, padding: '3px 10px',
-                fontSize: 13, fontWeight: 700, fontFamily: 'Syne',
+                fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-display)',
               }}>
                 {item.price}
               </span>

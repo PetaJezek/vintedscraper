@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ToastProvider } from './components/Toast';
 import { LanguageProvider } from './i18n';
 import BottomNav from './components/BottomNav';
+import Terminal from './components/Terminal';
 import SwipeScreen from './screens/SwipeScreen';
 import LikedScreen from './screens/LikedScreen';
 import CompareScreen from './screens/CompareScreen';
@@ -11,6 +12,19 @@ import ProfileScreen from './screens/ProfileScreen';
 import ConfigScreen from './screens/ConfigScreen';
 import LoginScreen from './screens/LoginScreen';
 import { ping } from './api/client';
+
+// Only mount the (animating) ambient terminal on wide screens.
+function useWide(min = 1000) {
+  const [wide, setWide] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia(`(min-width:${min}px)`).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(`(min-width:${min}px)`);
+    const on = e => setWide(e.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, [min]);
+  return wide;
+}
 
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem('vinted_token'));
@@ -52,91 +66,93 @@ export default function App() {
 
 function OfflineScreen() {
   const [retrying, setRetrying] = useState(false);
-
-  async function retry() {
-    setRetrying(true);
-    await ping();
-    setRetrying(false);
-  }
+  async function retry() { setRetrying(true); await ping(); setRetrying(false); }
 
   return (
     <div style={{
-      position: 'fixed', inset: 0,
+      position: 'fixed', inset: 0, zIndex: 1,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'var(--bg)', padding: 24,
+      flexDirection: 'column', gap: 26, padding: 24,
     }}>
-      <div style={{
-        width: '100%', maxWidth: 340,
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border)',
-        borderRadius: 20, padding: '32px 28px',
-        display: 'flex', flexDirection: 'column',
-        alignItems: 'center', gap: 16, textAlign: 'center',
-      }}>
-        <div style={{ fontSize: 48 }}>🖥️</div>
-        <div style={{ fontFamily: 'Syne', fontWeight: 800, fontSize: 22, color: 'var(--text)', letterSpacing: '-0.5px' }}>
-          Server is offline
+      <div style={{ textAlign: 'center' }}>
+        <div className="eyebrow" style={{ marginBottom: 10 }}>· connection lost ·</div>
+        <div className="display" style={{ fontSize: 34, fontWeight: 500, color: 'var(--text)' }}>
+          The atelier is <span style={{ fontStyle: 'italic', color: 'var(--accent)' }}>asleep</span>
         </div>
-        <div style={{ fontSize: 14, color: 'var(--text-2)', lineHeight: 1.6 }}>
-          Start the backend on your PC first:
-        </div>
-        <div style={{
-          background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 10, padding: '10px 16px',
-          fontFamily: 'monospace', fontSize: 13, color: 'var(--text)',
-          width: '100%', textAlign: 'left',
-        }}>
-          ./scriptWEB.sh
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5 }}>
-          Then come back here — it'll reconnect automatically.
-        </div>
-        <button
-          onClick={retry}
-          disabled={retrying}
-          style={{
-            marginTop: 4,
-            background: 'var(--accent)', color: '#fff',
-            border: 'none', borderRadius: 12,
-            padding: '12px 28px', fontSize: 14, fontWeight: 600,
-            cursor: retrying ? 'default' : 'pointer',
-            opacity: retrying ? 0.6 : 1,
-            fontFamily: 'inherit',
-          }}
-        >
-          {retrying ? 'Checking…' : 'Retry now'}
-        </button>
       </div>
+      <div style={{ width: '100%', maxWidth: 440 }}>
+        <Terminal
+          title="vinted-ai — offline"
+          status="error"
+          maxLines={6}
+          lines={[
+            '$ curl http://localhost:8000/api/ping',
+            '✗ connection refused',
+            '→ the backend is not running on your PC',
+            '$ ./vinted-ai.sh    # start it, then return',
+          ]}
+        />
+      </div>
+      <button
+        onClick={retry}
+        disabled={retrying}
+        style={{
+          background: 'var(--accent)', color: '#1a1206',
+          border: 'none', borderRadius: 999,
+          padding: '13px 32px', fontSize: 14, fontWeight: 700,
+          letterSpacing: '0.01em',
+          cursor: retrying ? 'default' : 'pointer',
+          opacity: retrying ? 0.6 : 1,
+          boxShadow: '0 8px 24px rgba(230,189,118,0.25)',
+        }}
+      >
+        {retrying ? 'Reconnecting…' : 'Reconnect'}
+      </button>
     </div>
   );
 }
 
 function Layout() {
   const location = useLocation();
+  const wide = useWide();
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={location.pathname}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.18, ease: 'easeInOut' }}
-            style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
-          >
-            <Routes location={location}>
-              <Route path="/" element={<SwipeScreen />} />
-              <Route path="/compare" element={<CompareScreen />} />
-              <Route path="/liked" element={<LikedScreen />} />
-              <Route path="/profile" element={<ProfileScreen />} />
-              <Route path="/config" element={<ConfigScreen />} />
-            </Routes>
-          </motion.div>
-        </AnimatePresence>
+    <div className="shell">
+      <div className="phone">
+        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={location.pathname}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.18, ease: 'easeInOut' }}
+              style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+            >
+              <Routes location={location}>
+                <Route path="/" element={<SwipeScreen />} />
+                <Route path="/compare" element={<CompareScreen />} />
+                <Route path="/liked" element={<LikedScreen />} />
+                <Route path="/profile" element={<ProfileScreen />} />
+                <Route path="/config" element={<ConfigScreen />} />
+              </Routes>
+            </motion.div>
+          </AnimatePresence>
+        </div>
+        <BottomNav />
       </div>
-      <BottomNav />
+
+      {wide && (
+        <aside className="rail">
+          <div>
+            <div className="eyebrow" style={{ color: 'var(--accent)', marginBottom: 8 }}>● live · the machine</div>
+            <div className="display" style={{ fontSize: 30, fontWeight: 500, color: 'var(--text)', lineHeight: 1.05 }}>
+              Always learning<br />your <span style={{ fontStyle: 'italic', color: 'var(--accent)' }}>taste</span>.
+            </div>
+          </div>
+          <Terminal style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }} maxLines={22} />
+        </aside>
+      )}
     </div>
   );
 }

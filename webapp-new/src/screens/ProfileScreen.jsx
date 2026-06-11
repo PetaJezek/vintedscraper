@@ -7,6 +7,7 @@ import {
 } from '../api/client';
 import { useToast } from '../components/Toast';
 import { useLang } from '../i18n';
+import Terminal from '../components/Terminal';
 
 const TRIGGERS = {
   scrape:    triggerScrape,
@@ -93,7 +94,7 @@ export default function ProfileScreen() {
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {/* Header */}
         <div style={{ padding: '16px 20px 20px', display: 'flex', alignItems: 'center' }}>
-          <span style={{ fontFamily: 'Syne', fontWeight: 800, fontSize: 22, color: 'var(--text)', letterSpacing: '-0.5px', flex: 1 }}>{t('profile.title')}</span>
+          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 22, color: 'var(--text)', letterSpacing: '-0.5px', flex: 1 }}>{t('profile.title')}</span>
           <button
             onClick={() => navigate('/config')}
             title="Scraper settings"
@@ -125,7 +126,7 @@ export default function ProfileScreen() {
               >
                 <div style={{ fontSize: 20, marginBottom: 4 }}>{s.icon}</div>
                 <div style={{
-                  fontFamily: 'Syne', fontWeight: 800, fontSize: 20,
+                  fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 20,
                   color: loading ? 'transparent' : 'var(--text)',
                   background: loading ? 'var(--surface)' : 'none',
                   borderRadius: loading ? 6 : 0,
@@ -164,23 +165,13 @@ export default function ProfileScreen() {
                 exit={{ opacity: 0, height: 0 }}
                 style={{ overflow: 'hidden', marginBottom: 12 }}
               >
-                <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14, padding: '12px 14px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                    {job.status === 'running'
-                      ? <Spinner />
-                      : <span style={{ fontSize: 16 }}>{job.status === 'done' ? '✅' : '⚠️'}</span>}
-                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', flex: 1 }}>{job.label}</span>
-                    <span style={{ fontSize: 11, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{job.status}</span>
-                  </div>
-                  <div style={{
-                    background: 'var(--surface)', borderRadius: 8, padding: '8px 10px',
-                    fontFamily: 'monospace', fontSize: 11, lineHeight: 1.5,
-                    color: 'var(--text-2)', maxHeight: 120, overflowY: 'auto',
-                    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                  }}>
-                    {(job.log || []).slice(-8).join('\n') || '…'}
-                  </div>
-                </div>
+                <Terminal
+                  title={`${job.label} · ${job.status}`}
+                  status={job.status}
+                  lines={job.log && job.log.length ? job.log : ['$ starting…']}
+                  maxLines={10}
+                  style={{ maxHeight: 240 }}
+                />
               </motion.div>
             )}
           </AnimatePresence>
@@ -233,7 +224,7 @@ export default function ProfileScreen() {
 
         {/* App info */}
         <div style={{ padding: '0 16px 24px', textAlign: 'center', color: 'var(--text-3)', fontSize: 12 }}>
-          <div style={{ fontFamily: 'Syne', fontWeight: 700, fontSize: 14, color: 'var(--text-2)', marginBottom: 4 }}>Vinted AI</div>
+          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, color: 'var(--text-2)', marginBottom: 4 }}>Vinted AI</div>
           <div>Fashion recommendation engine</div>
           {stats?.top_categories && (
             <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
